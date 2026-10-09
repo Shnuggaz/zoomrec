@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# zoomrec: never commit personal data (meeting links, passwords, tokens, Zoom login)
+meetings.csv
+!meetings.example.csv
+.env
+zoom-profile/
+recordings/
+audio/
+!example/audio/
