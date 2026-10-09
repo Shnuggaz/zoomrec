@@ -26,7 +26,7 @@ If you’re looking for a hosted Meeting Recording API, consider checking out [R
 
 - **Python3** - _Script to automatically join Zoom meetings and control FFmpeg_
 - **FFmpeg** - _Triggered by python script to start/stop screen recording_
-- **Docker** - _Headless VNC Container based on Ubuntu 20.04 with Xfce window manager and TigerVNC_
+- **Docker** - _Headless VNC Container based on Ubuntu 24.04 with Xfce window manager and TigerVNC_
 - **Telegram** - _Get notified about your recordings_
 
 ---
@@ -34,6 +34,28 @@ If you’re looking for a hosted Meeting Recording API, consider checking out [R
 Join with ID and Passcode           |  Join with URL
 :-------------------------:|:-------------------------:
 ![](doc/demo/join-meeting-id.gif)  |  ![](doc/demo/join-meeting-url.gif)
+
+---
+
+## Fork quick start (Ubuntu 24.04, current Zoom client)
+
+This fork targets a single self-hosted VM. The image is built locally, there is no registry image.
+
+```bash
+git clone <this repo> zoomrec && cd zoomrec
+mkdir -p recordings audio                    # must exist before the first start, owned by uid 1000
+cp meetings.example.csv meetings.csv         # then edit; meetings.csv is git-ignored
+docker compose up -d --build                 # installs the latest Zoom client
+# or pin a Zoom version:
+ZOOM_VERSION=6.4.6.1370 docker compose up -d --build
+```
+
+- Zoom version: build arg `ZOOM_VERSION` (`latest` by default, downloads `https://zoom.us/client/<version>/zoom_amd64.deb`).
+  `ZOOM_DEB_URL` overrides the URL completely. The installed version is printed at the end of the Zoom build step.
+- Timezone defaults to `Europe/Vienna`.
+- VNC is only published on `127.0.0.1:5901`. From another machine use an SSH tunnel:
+  `ssh -L 5901:127.0.0.1:5901 user@vm`, then connect a VNC viewer to `localhost:5901`.
+- Logs: `docker compose logs -f zoomrec`
 
 ---
 

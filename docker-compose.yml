@@ -1,0 +1,26 @@
+services:
+  zoomrec:
+    build:
+      context: .
+      args:
+        # "latest" or a specific Zoom version, e.g. 6.4.6.1370
+        ZOOM_VERSION: ${ZOOM_VERSION:-latest}
+    image: zoomrec:local
+    container_name: zoomrec
+    restart: unless-stopped
+    # Zoom (Qt WebEngine/Chromium) needs more than the default 64 MB /dev/shm
+    shm_size: 1gb
+    environment:
+      TZ: ${TZ:-Europe/Vienna}
+      VNC_PW: ${VNC_PW:-zoomrec}
+      DEBUG: ${DEBUG:-False}
+      DISPLAY_NAME: ${DISPLAY_NAME:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    ports:
+      # Only reachable from the VM itself, use an SSH tunnel for remote access
+      - "127.0.0.1:5901:5901"
+    volumes:
+      - ./recordings:/home/zoomrec/recordings
+      - ./meetings.csv:/home/zoomrec/meetings.csv:ro
+      - ./audio:/home/zoomrec/audio:ro
