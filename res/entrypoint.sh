@@ -2,29 +2,55 @@
 set -e
 
 cleanup () {
-    kill -s SIGTERM $!
+    kill -s SIGTERM $! 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGINT SIGTERM
 
 VNC_IP=$(hostname -i)
+DISPLAY_NUM="${DISPLAY#:}"
 
 # Change vnc password
 mkdir -p "$HOME/.vnc"
 PASSWD_PATH="$HOME/.vnc/passwd"
-
-if [[ -f $PASSWD_PATH ]]; then
-    rm -f "$PASSWD_PATH"
-fi
-
-echo "$VNC_PW" | vncpasswd -f >> "$PASSWD_PATH"
+rm -f "$PASSWD_PATH"
+echo "$VNC_PW" | vncpasswd -f > "$PASSWD_PATH"
 chmod 600 "$PASSWD_PATH"
 
-# Remove old vnc locks
-vncserver -kill "$DISPLAY" &> "$START_DIR"/vnc_startup.log || rm -rf /tmp/.X*-lock /tmp/.X11-unix &> "$START_DIR"/vnc_startup.log
+# Remove stale X locks from a previous run of this container
+rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 
 echo -e "\nDISPLAY = $DISPLAY\nVNC_COL_DEPTH = $VNC_COL_DEPTH\nVNC_RESOLUTION = $VNC_RESOLUTION\nVNC_IP = $VNC_IP\nVNC_PORT = $VNC_PORT"
-vncserver "$DISPLAY" -depth "$VNC_COL_DEPTH" -geometry "$VNC_RESOLUTION" &> "$START_DIR"/vnc_startup.log
+
+# Create X authority cookie (python-xlib/pyautogui require ~/.Xauthority)
+export XAUTHORITY="$HOME/.Xauthority"
+rm -f "$XAUTHORITY"
+touch "$XAUTHORITY"
+xauth -q add "$DISPLAY" . "$(mcookie)"
+
+# Start the X server with built-in VNC server
+Xtigervnc "$DISPLAY" \
+    -auth "$XAUTHORITY" \
+    -geometry "$VNC_RESOLUTION" \
+    -depth "$VNC_COL_DEPTH" \
+    -rfbport "$VNC_PORT" \
+    -rfbauth "$PASSWD_PATH" \
+    -SecurityTypes VncAuth \
+    -localhost=0 \
+    -AlwaysShared \
+    -desktop zoomrec \
+    &> "$START_DIR"/vnc_startup.log &
+
+# Wait for X server
+for _ in $(seq 1 30); do
+    xdpyinfo -display "$DISPLAY" &> /dev/null && break
+    sleep 1
+done
+if ! xdpyinfo -display "$DISPLAY" &> /dev/null; then
+    echo "X server did not start:" >&2
+    cat "$START_DIR"/vnc_startup.log >&2
+    exit 1
+fi
 
 echo -e "\nConnect to $VNC_IP:$VNC_PORT"
 
@@ -32,24 +58,26 @@ echo -e "\nConnect to $VNC_IP:$VNC_PORT"
 "$START_DIR"/xfce.sh &> "$START_DIR"/xfce.log
 
 # Cleanup to ensure pulseaudio is stateless
-rm -rf /var/run/pulse /var/lib/pulse /home/zoomrec/.config/pulse
+rm -rf /var/run/pulse /var/lib/pulse "$HOME"/.config/pulse
 
 # Start audio
 pulseaudio -D --exit-idle-time=-1 --log-level=error
 
-# Create speaker Dummy-Output
+# Create speaker Dummy-Output (Zoom plays meeting audio here, FFmpeg records speaker.monitor)
 pactl load-module module-null-sink sink_name=speaker sink_properties=device.description="speaker" > /dev/null
-pactl set-source-volume 1 100%
+pactl set-source-volume speaker.monitor 100%
 
 # Create microphone Dummy-Output
 pactl load-module module-null-sink sink_name=microphone sink_properties=device.description="microphone" > /dev/null
-pactl set-source-volume 2 100%
+pactl set-source-volume microphone.monitor 100%
 
 # Map microphone-Output to microphone-Input
-pactl load-module module-loopback latency_msec=1 source=2 sink=microphone > /dev/null
-pactl load-module module-remap-source master=microphone.monitor source_name=microphone source_properties=device.description="microphone" > /dev/null
+pactl load-module module-remap-source master=microphone.monitor source_name=microphone_in source_properties=device.description="microphone" > /dev/null
 # Set microphone Volume
-pactl set-source-volume 3 60%
+pactl set-source-volume microphone_in 60%
+
+pactl set-default-sink speaker
+pactl set-default-source microphone_in
 
 echo -e "\nStart script.."
 sleep 5

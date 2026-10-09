@@ -1,7 +1,6 @@
-testresources
 pyautogui
 schedule
 psutil
-opencv-python
+opencv-python-headless
 pillow>=8.1.0
 requests
