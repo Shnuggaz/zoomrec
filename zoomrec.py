@@ -431,7 +431,7 @@ def join(meet_id, meet_pw, duration, description):
         filename = os.path.join(
             REC_PATH, time.strftime(TIME_FORMAT)) + "-" + description + "-JOIN.mkv"
 
-        command = "ffmpeg -nostats -loglevel quiet -f pulse -ac 2 -i 1 -f x11grab -r 30 -s " + resolution + " -i " + \
+        command = "ffmpeg -nostats -loglevel quiet -f pulse -ac 2 -i speaker.monitor -f x11grab -r 30 -s " + resolution + " -i " + \
                   disp + " -acodec pcm_s16le -vcodec libx264rgb -preset ultrafast -crf 0 -threads 0 -async 1 -vsync 1 " + filename
 
         ffmpeg_debug = subprocess.Popen(
@@ -772,7 +772,7 @@ def join(meet_id, meet_pw, duration, description):
     resolution = str(width) + 'x' + str(height)
     disp = os.getenv('DISPLAY')
 
-    command = "ffmpeg -nostats -loglevel error -f pulse -ac 2 -i 1 -f x11grab -r 30 -s " + resolution + " -i " + \
+    command = "ffmpeg -nostats -loglevel error -f pulse -ac 2 -i speaker.monitor -f x11grab -r 30 -s " + resolution + " -i " + \
               disp + " -acodec pcm_s16le -vcodec libx264rgb -preset ultrafast -crf 0 -threads 0 -async 1 -vsync 1 " + filename
 
     ffmpeg = subprocess.Popen(
@@ -935,6 +935,9 @@ while True:
     schedule.run_pending()
     time.sleep(1)
     time_of_next_run = schedule.next_run()
+    if time_of_next_run is None:
+        print("No meetings scheduled", end="\r", flush=True)
+        continue
     time_now = datetime.now()
     remaining = time_of_next_run - time_now
     print(f"Next meeting in {remaining}", end="\r", flush=True)
