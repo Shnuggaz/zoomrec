@@ -17,10 +17,17 @@ services:
       DISPLAY_NAME: ${DISPLAY_NAME:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # Changes to config/meetings.csv are picked up without a restart
+      MEETINGS_CSV: /home/zoomrec/config/meetings.csv
+      PLAY_AUDIO: ${PLAY_AUDIO:-false}
+      # Recording quality: lower CRF = better quality and bigger files
+      RECORD_FPS: ${RECORD_FPS:-15}
+      RECORD_CRF: ${RECORD_CRF:-28}
+      RECORD_THREADS: ${RECORD_THREADS:-2}
     ports:
       # Only reachable from the VM itself, use an SSH tunnel for remote access
       - "127.0.0.1:5901:5901"
     volumes:
       - ./recordings:/home/zoomrec/recordings
-      - ./meetings.csv:/home/zoomrec/meetings.csv:ro
+      - ./config:/home/zoomrec/config:ro
       - ./audio:/home/zoomrec/audio:ro

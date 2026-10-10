@@ -43,19 +43,26 @@ This fork targets a single self-hosted VM. The image is built locally, there is 
 
 ```bash
 git clone <this repo> zoomrec && cd zoomrec
-mkdir -p recordings audio                    # must exist before the first start, owned by uid 1000
-cp meetings.example.csv meetings.csv         # then edit; meetings.csv is git-ignored
-docker compose up -d --build                 # installs the latest Zoom client
+mkdir -p recordings audio config               # must exist before the first start, owned by uid 1000
+cp meetings.example.csv config/meetings.csv    # then edit; meetings.csv is git-ignored
+docker compose up -d --build                   # installs the latest Zoom client
 # or pin a Zoom version:
-ZOOM_VERSION=6.4.6.1370 docker compose up -d --build
+ZOOM_VERSION=7.2.1.5760 docker compose up -d --build
 ```
 
 - Zoom version: build arg `ZOOM_VERSION` (`latest` by default, downloads `https://zoom.us/client/<version>/zoom_amd64.deb`).
   `ZOOM_DEB_URL` overrides the URL completely. The installed version is printed at the end of the Zoom build step.
+- `config/meetings.csv` is re-read automatically when it changes, no restart needed.
+  Invalid rows (unknown weekday, time not `HH:MM`, duration not a number, ...) are skipped and logged.
+- Recordings are H.264/AAC `.mp4` files (15 fps, CRF 28 by default, roughly 100-200 MB per 90 minutes of slides and speech, about 0.15 CPU cores).
+  They are written as `.mkv` while recording, so a crash does not lose the file, and converted to `.mp4` at the end.
+  Tune with `RECORD_FPS`, `RECORD_CRF` and `RECORD_THREADS`.
+- Playing a sound into the meeting after joining is off by default (`PLAY_AUDIO=false`).
 - Timezone defaults to `Europe/Vienna`.
 - VNC is only published on `127.0.0.1:5901`. From another machine use an SSH tunnel:
   `ssh -L 5901:127.0.0.1:5901 user@vm`, then connect a VNC viewer to `localhost:5901`.
 - Logs: `docker compose logs -f zoomrec`
+- Tests: `python3 -m unittest discover -s tests`
 
 ---
 
