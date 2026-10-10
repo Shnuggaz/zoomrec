@@ -13,6 +13,8 @@ services:
     environment:
       TZ: ${TZ:-Europe/Vienna}
       VNC_PW: ${VNC_PW:-zoomrec}
+      # Screen size of the virtual desktop, this is also the recording resolution
+      VNC_RESOLUTION: ${VNC_RESOLUTION:-1920x1080}
       DEBUG: ${DEBUG:-False}
       DISPLAY_NAME: ${DISPLAY_NAME:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
