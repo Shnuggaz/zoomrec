@@ -76,7 +76,63 @@ RUN python3 -m venv ${VIRTUAL_ENV} && \
     pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r ${HOME}/res/requirements.txt
 
-# Zoom client. apt resolves the dependencies declared in the .deb itself.
+# Runtime libraries Zoom loads but does not declare in its .deb
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+        libegl1 \
+        libgl1 \
+        libgles2 \
+        libopengl0 \
+        libglx0 \
+        libgbm1 \
+        libdrm2 \
+        libnss3 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxrandr2 \
+        libxtst6 \
+        libxss1 \
+        libxshmfence1 \
+        libasound2t64 \
+        libpulse0 \
+        libfontconfig1 \
+        libxi6 \
+        libsm6 \
+        libxrender1 \
+        libxslt1.1 \
+        libsqlite3-0 \
+        libxkbcommon0 \
+        libxcb-cursor0 \
+        libxcb-xinerama0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-xfixes0 \
+        libxcb-xtest0 \
+        libxcb-xkb1 \
+        libxcb-glx0 \
+        libxcb-dri3-0 \
+        libxcb-present0 \
+        libglib2.0-0t64 \
+        libdbus-1-3 \
+        libcups2t64 \
+        libatk-bridge2.0-0t64 \
+        libwayland-client0 \
+        libwayland-cursor0 \
+        libwayland-egl1 \
+        libva2 \
+        libva-drm2 \
+        libva-x11-2 \
+        libpipewire-0.3-0t64 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Zoom client
 RUN if [ -n "${ZOOM_DEB_URL}" ]; then \
         url="${ZOOM_DEB_URL}"; \
     else \
@@ -90,6 +146,13 @@ RUN if [ -n "${ZOOM_DEB_URL}" ]; then \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
     dpkg-query -W -f='Installed Zoom ${Version}\n' zoom
+
+# Check that no shared library Zoom needs is missing.
+# Bundled libraries are found via LD_LIBRARY_PATH like the Zoom launcher does.
+# Missing libraries of the main binary or the X11 platform plugin fail the build,
+# anything else is only printed as a warning.
+COPY res/check-zoom-libs.sh /tmp/check-zoom-libs.sh
+RUN bash /tmp/check-zoom-libs.sh && rm -f /tmp/check-zoom-libs.sh
 
 # Allow access to pulseaudio
 RUN adduser zoomrec pulse-access
