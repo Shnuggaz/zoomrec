@@ -887,7 +887,7 @@ def exit_process_by_name(name):
 
 def join_ongoing_meeting():
     curr_date = datetime.now()
-    for meeting in load_meetings(CSV_PATH):
+    for meeting in read_meetings():
         if not meeting.record:
             continue
         start_time = datetime.strptime(meeting.time, '%H:%M').time()
@@ -906,10 +906,18 @@ def join_ongoing_meeting():
                 return
 
 
+def read_meetings():
+    try:
+        return load_meetings(CSV_PATH)
+    except FileNotFoundError:
+        logging.error("Meetings file %s not found, waiting for it to appear." % CSV_PATH)
+        return []
+
+
 def setup_schedule():
     schedule.clear()
     count = 0
-    for meeting in load_meetings(CSV_PATH):
+    for meeting in read_meetings():
         if not meeting.record:
             continue
         # Start one minute early
