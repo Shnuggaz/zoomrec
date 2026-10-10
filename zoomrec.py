@@ -1,4 +1,3 @@
-import csv
 import logging
 import os
 import psutil
@@ -12,6 +11,9 @@ import time
 import atexit
 import requests
 from datetime import datetime, timedelta
+
+from zoomrec_core import (RecordingSettings, build_record_command,
+                          build_remux_command, load_meetings)
 
 global ONGOING_MEETING
 global VIDEO_PANEL_HIDED
@@ -33,7 +35,7 @@ pyautogui.FAILSAFE = False
 
 # Get vars
 BASE_PATH = os.getenv('HOME')
-CSV_PATH = os.path.join(BASE_PATH, "meetings.csv")
+CSV_PATH = os.getenv("MEETINGS_CSV", os.path.join(BASE_PATH, "meetings.csv"))
 IMG_PATH = os.path.join(BASE_PATH, "img")
 REC_PATH = os.path.join(BASE_PATH, "recordings")
 AUDIO_PATH = os.path.join(BASE_PATH, "audio")
@@ -62,7 +64,11 @@ if DISPLAY_NAME is None or  len(DISPLAY_NAME) < 3:
     DISPLAY_NAME = random.choice(NAME_LIST)
 
 TIME_FORMAT = "%Y-%m-%d_%H-%M-%S"
-CSV_DELIMITER = ';'
+
+# Play a random .wav from AUDIO_PATH into the meeting after joining (off by default)
+PLAY_AUDIO = os.getenv('PLAY_AUDIO', 'false').lower() == 'true'
+
+RECORDING_SETTINGS = RecordingSettings.from_env()
 
 ONGOING_MEETING = False
 VIDEO_PANEL_HIDED = False
@@ -431,11 +437,9 @@ def join(meet_id, meet_pw, duration, description):
         filename = os.path.join(
             REC_PATH, time.strftime(TIME_FORMAT)) + "-" + description + "-JOIN.mkv"
 
-        command = "ffmpeg -nostats -loglevel quiet -f pulse -ac 2 -i speaker.monitor -f x11grab -r 30 -s " + resolution + " -i " + \
-                  disp + " -acodec pcm_s16le -vcodec libx264rgb -preset ultrafast -crf 0 -threads 0 -async 1 -vsync 1 " + filename
+        command = build_record_command(disp, resolution, filename, RECORDING_SETTINGS)
 
-        ffmpeg_debug = subprocess.Popen(
-            command, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid)
+        ffmpeg_debug = subprocess.Popen(command, preexec_fn=os.setsid)
         atexit.register(os.killpg, os.getpgid(
             ffmpeg_debug.pid), signal.SIGQUIT)
 
@@ -626,7 +630,8 @@ def join(meet_id, meet_pw, duration, description):
 
     # 'Say' something if path available (mounted)
     if os.path.exists(AUDIO_PATH):
-        play_audio(description)
+        if PLAY_AUDIO:
+            play_audio(description)
 
     time.sleep(2)
     logging.info("Enter fullscreen..")
@@ -772,11 +777,9 @@ def join(meet_id, meet_pw, duration, description):
     resolution = str(width) + 'x' + str(height)
     disp = os.getenv('DISPLAY')
 
-    command = "ffmpeg -nostats -loglevel error -f pulse -ac 2 -i speaker.monitor -f x11grab -r 30 -s " + resolution + " -i " + \
-              disp + " -acodec pcm_s16le -vcodec libx264rgb -preset ultrafast -crf 0 -threads 0 -async 1 -vsync 1 " + filename
+    command = build_record_command(disp, resolution, filename, RECORDING_SETTINGS)
 
-    ffmpeg = subprocess.Popen(
-        command, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid)
+    ffmpeg = subprocess.Popen(command, preexec_fn=os.setsid)
 
     atexit.register(os.killpg, os.getpgid(
         ffmpeg.pid), signal.SIGQUIT)
@@ -809,6 +812,13 @@ def join(meet_id, meet_pw, duration, description):
     os.killpg(os.getpgid(zoom.pid), signal.SIGQUIT)
     os.killpg(os.getpgid(ffmpeg.pid), signal.SIGQUIT)
     atexit.unregister(os.killpg)
+    try:
+        ffmpeg.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        logging.error("FFmpeg did not stop in time, killing it")
+        os.killpg(os.getpgid(ffmpeg.pid), signal.SIGKILL)
+        ffmpeg.wait()
+    remux_to_mp4(filename)
 
     if not ONGOING_MEETING:
         try:
@@ -822,6 +832,21 @@ def join(meet_id, meet_pw, duration, description):
                     TIME_FORMAT) + "-" + description) + "_ok_error.png")
                 
     send_telegram_message("Meeting '{}' ended.".format(description))
+
+def remux_to_mp4(mkv_path):
+    """Convert the finished .mkv recording to .mp4. Keeps the .mkv if that fails."""
+    mp4_path = os.path.splitext(mkv_path)[0] + ".mp4"
+    result = subprocess.run(build_remux_command(mkv_path, mp4_path),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode == 0 and os.path.getsize(mp4_path) > 0:
+        os.remove(mkv_path)
+        logging.info("Saved recording " + mp4_path)
+    else:
+        logging.error("Remux to mp4 failed, keeping " + mkv_path + ": " +
+                      result.stderr.decode(errors='replace')[-500:])
+        if os.path.exists(mp4_path):
+            os.remove(mp4_path)
+
 
 def play_audio(description):
     # Get all files in audio directory
@@ -861,59 +886,39 @@ def exit_process_by_name(name):
 
 
 def join_ongoing_meeting():
-    with open(CSV_PATH, mode='r') as csv_file:
-        csv_reader = csv.DictReader(csv_file, delimiter=CSV_DELIMITER)
-        for row in csv_reader:
-            # Check and join ongoing meeting
-            curr_date = datetime.now()
-
-            # Monday, tuesday, ..
-            if row["weekday"].lower() == curr_date.strftime('%A').lower():
-                curr_time = curr_date.time()
-
-                start_time_csv = datetime.strptime(row["time"], '%H:%M')
-                start_date = curr_date.replace(
-                    hour=start_time_csv.hour, minute=start_time_csv.minute)
-                start_time = start_date.time()
-
-                end_date = start_date + \
-                    timedelta(seconds=int(row["duration"]) * 60 + 300)  # Add 5 minutes
-                end_time = end_date.time()
-
-                recent_duration = (end_date - curr_date).total_seconds()
-
-                if start_time < end_time:
-                    if start_time <= curr_time <= end_time and str(row["record"]) == 'true':
-                            logging.info(
-                                "Join meeting that is currently running..")
-                            join(meet_id=row["id"], meet_pw=row["password"],
-                                 duration=recent_duration, description=row["description"])
-                else:  # crosses midnight
-                    if curr_time >= start_time or curr_time <= end_time and str(row["record"]) == 'true':
-                            logging.info(
-                                "Join meeting that is currently running..")
-                            join(meet_id=row["id"], meet_pw=row["password"],
-                                 duration=recent_duration, description=row["description"])
+    curr_date = datetime.now()
+    for meeting in load_meetings(CSV_PATH):
+        if not meeting.record:
+            continue
+        start_time = datetime.strptime(meeting.time, '%H:%M').time()
+        # Check today's and yesterday's occurrence (meetings can cross midnight)
+        for days_back in (0, 1):
+            day = curr_date - timedelta(days=days_back)
+            if day.strftime('%A').lower() != meeting.weekday:
+                continue
+            start_date = datetime.combine(day.date(), start_time)
+            end_date = start_date + timedelta(minutes=meeting.duration, seconds=300)  # Add 5 minutes
+            if start_date <= curr_date <= end_date:
+                logging.info("Join meeting that is currently running..")
+                join(meet_id=meeting.id, meet_pw=meeting.password,
+                     duration=(end_date - curr_date).total_seconds(),
+                     description=meeting.description)
+                return
 
 
 def setup_schedule():
-    with open(CSV_PATH, mode='r') as csv_file:
-        csv_reader = csv.DictReader(csv_file, delimiter=CSV_DELIMITER)
-        line_count = 0
-        for row in csv_reader:
-            if str(row["record"]) == 'true':
-                cmd_string = "schedule.every()." + row["weekday"] \
-                             + ".at(\"" \
-                             + (datetime.strptime(row["time"], '%H:%M') - timedelta(minutes=1)).strftime('%H:%M') \
-                             + "\").do(join, meet_id=\"" + row["id"] \
-                             + "\", meet_pw=\"" + row["password"] \
-                             + "\", duration=" + str(int(row["duration"]) * 60) \
-                             + ", description=\"" + row["description"] + "\")"
-
-                cmd = compile(cmd_string, "<string>", "eval")
-                eval(cmd)
-                line_count += 1
-        logging.info("Added %s meetings to schedule." % line_count)
+    schedule.clear()
+    count = 0
+    for meeting in load_meetings(CSV_PATH):
+        if not meeting.record:
+            continue
+        # Start one minute early
+        join_time = (datetime.strptime(meeting.time, '%H:%M') - timedelta(minutes=1)).strftime('%H:%M')
+        getattr(schedule.every(), meeting.weekday).at(join_time).do(
+            join, meet_id=meeting.id, meet_pw=meeting.password,
+            duration=meeting.duration * 60, description=meeting.description)
+        count += 1
+    logging.info("Added %s meetings to schedule." % count)
 
 
 def main():
@@ -931,9 +936,27 @@ def main():
 if __name__ == '__main__':
     main()
 
+def csv_mtime():
+    try:
+        return os.path.getmtime(CSV_PATH)
+    except OSError:
+        return None
+
+
+last_csv_mtime = csv_mtime()
+
 while True:
     schedule.run_pending()
     time.sleep(1)
+    # Reload the schedule when meetings.csv changes, no restart needed
+    current_mtime = csv_mtime()
+    if current_mtime != last_csv_mtime:
+        last_csv_mtime = current_mtime
+        logging.info("meetings.csv changed, reloading schedule")
+        try:
+            setup_schedule()
+        except Exception as ex:
+            logging.error("Failed to reload meetings.csv: " + str(ex))
     time_of_next_run = schedule.next_run()
     if time_of_next_run is None:
         print("No meetings scheduled", end="\r", flush=True)
