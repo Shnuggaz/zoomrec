@@ -44,6 +44,8 @@ services:
     volumes:
       # RECORDINGS_PATH can point to a network share mounted on the host
       - ${RECORDINGS_PATH:-./recordings}:/home/zoomrec/recordings
+      # Local directory for the running recording, finished files are moved to RECORDINGS_PATH
+      - ${WORK_PATH:-./work}:/home/zoomrec/work
       - ./config:/home/zoomrec/config:ro
       - ./audio:/home/zoomrec/audio:ro
       # Zoom settings (e.g. skip join preview, remembered name), survive image updates

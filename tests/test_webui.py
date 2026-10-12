@@ -118,6 +118,15 @@ class WebUiTest(unittest.TestCase):
         self.client.post(f'/recordings/{self.video}/delete', data={'csrf': self.csrf})
         self.assertTrue(os.path.exists(os.path.join(self.rec, self.video)))
 
+    def test_running_recording_outside_library_is_listed(self):
+        write_status(os.path.join(self.rec, '.zoomrec'),
+                     {'state': 'recording', 'file': '2026-10-13_09-54-00-VO_Analysis.mkv'})
+        self.login()
+        html = self.client.get('/').get_data(as_text=True)
+        self.assertIn('VO Analysis', html)
+        self.assertIn('Wird aufgenommen', html)
+        self.assertEqual(self.client.get('/recordings/2026-10-13_09-54-00-VO_Analysis.mkv').status_code, 404)
+
     def test_status_api(self):
         write_status(os.path.join(self.rec, '.zoomrec'), {
             'state': 'recording', 'meeting': 'VO_Mathe', 'file': self.video,

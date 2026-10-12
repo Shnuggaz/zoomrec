@@ -219,6 +219,16 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 'playable': name.endswith('.mp4') and not in_progress,
                 'thumb_version': int(os.path.getmtime(thumb)) if os.path.exists(thumb) else None,
             })
+        # The running recording is written locally by the recorder and not in the library yet
+        if active and RECORDING_NAME_RE.match(active) and active not in {i['name'] for i in items}:
+            match = FILE_DATE_RE.match(active)
+            if match:
+                items.append({
+                    'name': active, 'title': match.group(2).replace('_', ' '),
+                    'date': datetime.strptime(match.group(1), '%Y-%m-%d_%H-%M-%S'), 'size': '–',
+                    'size_bytes': 0, 'duration': '–', 'duration_seconds': None, 'in_progress': True,
+                    'playable': False, 'thumb_version': None,
+                })
         hues = all_hues(i['title'] for i in items)
         transcripts = read_state(status_dir)
         for item in items:

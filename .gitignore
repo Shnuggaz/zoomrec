@@ -137,5 +137,6 @@ docker-compose.override.yml
 # Schedule with meeting links and the session secret of the web interface
 config/
 recordings/
+work/
 audio/
 !example/audio/

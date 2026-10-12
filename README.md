@@ -128,8 +128,14 @@ create all files with that group; files are group-writable (`UMASK=0002`). Exist
 
 ### Recordings on a network share
 
-Mount the share on the host (NFS or SMB via `/etc/fstab`), make it writable for uid 1000 and set
-`RECORDINGS_PATH=/mnt/...` in `.env`. Both containers then use it instead of `./recordings`.
+Mount the share on the host (NFS or SMB via `/etc/fstab`), make it writable for uid 1000 (or the
+group `PGID`) and set `RECORDINGS_PATH=/mnt/...` in `.env`. Both containers then use it instead of
+`./recordings`.
+
+The running recording is always written to the local `work/` directory (`WORK_PATH`). When the meeting
+ends it is copied into the library under a temporary name and renamed when complete, so a slow or
+briefly unavailable share never breaks a recording. If the share is not reachable, the file stays in
+`work/` and is moved automatically once it is back.
 
 #### Behind a reverse proxy
 
