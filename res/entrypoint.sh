@@ -19,6 +19,20 @@ for dir in "$HOME/.zoom" "$HOME/recordings"; do
     fi
 done
 
+# Zoom profile: Zoom encrypts its settings with the device ID from zoomus.conf and
+# may use the machine ID, so both are kept in the persistent profile directory.
+PROFILE_DIR="$HOME/.zoom"
+if [[ -w "$PROFILE_DIR" ]]; then
+    if [[ -s "$PROFILE_DIR/zoomus.conf" ]]; then
+        cp "$PROFILE_DIR/zoomus.conf" "$HOME/.config/zoomus.conf"
+    else
+        cp "$HOME/.config/zoomus.conf" "$PROFILE_DIR/zoomus.conf"
+    fi
+    if [[ ! -s "$PROFILE_DIR/machine-id" ]]; then
+        tr -d '-' < /proc/sys/kernel/random/uuid > "$PROFILE_DIR/machine-id"
+    fi
+fi
+
 # Change vnc password
 mkdir -p "$HOME/.vnc"
 PASSWD_PATH="$HOME/.vnc/passwd"
@@ -72,8 +86,12 @@ rm -rf /var/run/pulse /var/lib/pulse "$HOME"/.config/pulse
 # Start audio
 pulseaudio -D --exit-idle-time=-1 --log-level=error
 
+# Keep sinks running when silent, otherwise the recording gets gaps
+pactl unload-module module-suspend-on-idle 2>/dev/null || true
+
 # Create speaker Dummy-Output (Zoom plays meeting audio here, FFmpeg records speaker.monitor)
-pactl load-module module-null-sink sink_name=speaker sink_properties=device.description="speaker" > /dev/null
+# 48 kHz is what Zoom uses, so audio is not resampled
+pactl load-module module-null-sink sink_name=speaker rate=48000 channels=2 sink_properties=device.description="speaker" > /dev/null
 pactl set-source-volume speaker.monitor 100%
 
 # Create microphone Dummy-Output
