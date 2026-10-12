@@ -133,6 +133,7 @@ meetings.csv
 !meetings.example.csv
 .env
 zoom-profile/
+docker-compose.override.yml
 recordings/
 audio/
 !example/audio/

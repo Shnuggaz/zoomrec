@@ -1,0 +1,15 @@
+# Local additions to docker-compose.yml. Copy to docker-compose.override.yml (git-ignored);
+# Docker Compose reads it automatically.
+#
+# Example: the reverse proxy runs as a container in the Docker network "proxy_network" and
+# forwards to http://zoomrec-webui:8080
+services:
+  webui:
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: proxy_network

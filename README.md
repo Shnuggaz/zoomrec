@@ -131,6 +131,15 @@ create all files with that group; files are group-writable (`UMASK=0002`). Exist
 Mount the share on the host (NFS or SMB via `/etc/fstab`), make it writable for uid 1000 and set
 `RECORDINGS_PATH=/mnt/...` in `.env`. Both containers then use it instead of `./recordings`.
 
+#### Behind a reverse proxy
+
+If the proxy runs as a container, copy `docker-compose.override.example.yml` to
+`docker-compose.override.yml` (git-ignored), set the name of the proxy's Docker network there and let the
+proxy forward to `http://zoomrec-webui:8080`. Set `TRUST_PROXY=true` in `.env`: the client address and
+HTTPS are then taken from `X-Forwarded-*` headers and the login cookie is only sent over HTTPS. After
+5 wrong passwords within 15 minutes an address is blocked for 15 minutes. Prefer a VPN or an access list
+in the proxy over exposing the interface to the whole internet.
+
 The recorder writes its state to `recordings/.zoomrec/status.json` and the preview to
 `recordings/.zoomrec/preview.jpg`; the web interface only reads them, so no Docker socket is needed.
 

@@ -62,6 +62,8 @@ services:
       UMASK: ${UMASK:-0002}
       # Required, the web interface does not start without a password
       WEB_PASSWORD: ${WEB_PASSWORD:?Set WEB_PASSWORD in .env}
+      # true when a HTTPS reverse proxy forwards to the web interface
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       RECORDINGS_DIR: /data/recordings
       MEETINGS_CSV: /data/config/meetings.csv
     ports:
