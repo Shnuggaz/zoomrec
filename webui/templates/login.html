@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Anmelden – zoomrec{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>zoomrec</h1>
+  <form method="post">
+    <label for="password">Passwort</label>
+    <input type="password" id="password" name="password" autofocus required autocomplete="current-password">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <button class="primary">Anmelden</button>
+  </form>
+</section>
+{% endblock %}

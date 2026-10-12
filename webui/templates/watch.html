@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} – zoomrec{% endblock %}
+{% block content %}
+<section class="card">
+  <p><a href="{{ url_for('index') }}">← Alle Aufnahmen</a></p>
+  <h1>{{ item.title }}</h1>
+  <p class="muted">{{ weekday_names[item.date.strftime('%A').lower()] }}, {{ item.date.strftime('%d.%m.%Y %H:%M') }} · {{ item.duration }} · {{ item.size }}</p>
+  <video class="player" controls preload="metadata" src="{{ url_for('stream', name=item.name) }}"></video>
+  <p class="player-help muted">Tastatur: Leertaste Pause, ← → 10 Sekunden, Geschwindigkeit:
+    {% for rate in [1, 1.25, 1.5, 1.75, 2] %}<button class="link speed" data-rate="{{ rate }}">{{ rate }}×</button>{% endfor %}
+  </p>
+  <p><a class="button" href="{{ url_for('download', name=item.name) }}">Download</a></p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

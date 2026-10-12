@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}zoomrec{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23e03131'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% if session.get('auth') %}
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}">zoomrec</a>
+    <nav>
+      <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint in ('index', 'watch') }}">Aufnahmen</a>
+      <a href="{{ url_for('schedule_view') }}" class="{{ 'active' if request.endpoint.startswith('schedule') }}">Stundenplan</a>
+      <form method="post" action="{{ url_for('logout') }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="link">Abmelden</button>
+      </form>
+    </nav>
+  </header>
+  {% endif %}
+  <main>
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

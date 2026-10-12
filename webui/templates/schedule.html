@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Stundenplan – zoomrec{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>Stundenplan</h2>
+    <a class="button primary" href="{{ url_for('schedule_new') }}">+ Vorlesung</a>
+  </div>
+  {% for line, message in errors %}
+    <p class="flash error">Zeile {{ line }} in meetings.csv ist ungültig und wird ignoriert: {{ message }}.
+      Beim nächsten Speichern hier wird sie entfernt.</p>
+  {% endfor %}
+  {% if not rows %}
+    <p class="muted">Noch keine Vorlesungen eingetragen.</p>
+  {% else %}
+  <table class="schedule">
+    <thead><tr><th>Vorlesung</th><th>Termin</th><th>Dauer</th><th>Nächste Aufnahme</th><th></th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      {% set m = row.meeting %}
+      <tr class="{{ '' if m.record else 'disabled' }}">
+        <td data-label="Vorlesung">{{ m.description.replace('_', ' ') }}</td>
+        <td data-label="Termin">{{ weekday_names[m.weekday] }}, {{ m.time }}</td>
+        <td data-label="Dauer">{{ m.duration }} min</td>
+        <td data-label="Nächste">{% if row.next %}{{ row.next.strftime('%d.%m. %H:%M') }}{% else %}<span class="muted">deaktiviert</span>{% endif %}</td>
+        <td class="actions">
+          <a class="button" href="{{ url_for('schedule_edit', index=row.index) }}">Bearbeiten</a>
+          <form method="post" action="{{ url_for('schedule_toggle', index=row.index) }}" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button>{{ 'Deaktivieren' if m.record else 'Aktivieren' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('schedule_delete', index=row.index) }}" class="inline"
+                onsubmit="return confirm('„{{ m.description }}“ wirklich aus dem Stundenplan löschen?')">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button class="danger">Löschen</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <p class="muted small">Der Recorder übernimmt Änderungen nach wenigen Sekunden und tritt jeweils eine Minute vor Beginn bei.</p>
+</section>
+{% endblock %}
