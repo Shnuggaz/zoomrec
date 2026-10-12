@@ -43,13 +43,20 @@ This fork targets a single self-hosted VM. The image is built locally, there is 
 
 ```bash
 git clone <this repo> zoomrec && cd zoomrec
-mkdir -p recordings audio config               # must exist before the first start, owned by uid 1000
+mkdir -p recordings audio config zoom-profile  # must exist before the first start, owned by uid 1000
 cp meetings.example.csv config/meetings.csv    # then edit; meetings.csv is git-ignored
 docker compose up -d --build                   # installs the latest Zoom client
 # or pin a Zoom version:
 ZOOM_VERSION=7.2.1.5760 docker compose up -d --build
 ```
 
+- Meetings are joined as guest through a `zoommtg://` join URL built from the link (or ID + password)
+  in `meetings.csv`, with `DISPLAY_NAME` as name. No image recognition is used: the bot waits for the
+  Zoom window titled `Meeting` (so it also waits in a waiting room), makes it fullscreen and records
+  until the window closes or the planned duration plus 5 minutes has passed.
+- One-time setup of the Zoom client (stored in `zoom-profile/`, survives updates): connect via VNC, join a
+  test meeting once with `docker exec zoomrec zoom --url='<join link>'`, untick
+  "Always show this preview when joining" and keep "Remember my name" ticked.
 - Zoom version: build arg `ZOOM_VERSION` (`latest` by default, downloads `https://zoom.us/client/<version>/zoom_amd64.deb`).
   `ZOOM_DEB_URL` overrides the URL completely. The installed version is printed at the end of the Zoom build step.
 - `config/meetings.csv` is re-read automatically when it changes, no restart needed.

@@ -7,6 +7,8 @@ services:
         ZOOM_VERSION: ${ZOOM_VERSION:-latest}
     image: zoomrec:local
     container_name: zoomrec
+    # Stable host name, Zoom stores it with its profile
+    hostname: zoomrec
     restart: unless-stopped
     # Zoom (Qt WebEngine/Chromium) needs more than the default 64 MB /dev/shm
     shm_size: 1gb
@@ -16,7 +18,8 @@ services:
       # Screen size of the virtual desktop, this is also the recording resolution
       VNC_RESOLUTION: ${VNC_RESOLUTION:-1920x1080}
       DEBUG: ${DEBUG:-False}
-      DISPLAY_NAME: ${DISPLAY_NAME:-}
+      # Name shown to the other participants
+      DISPLAY_NAME: ${DISPLAY_NAME:-zoomrec}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       # Changes to config/meetings.csv are picked up without a restart
@@ -33,3 +36,5 @@ services:
       - ./recordings:/home/zoomrec/recordings
       - ./config:/home/zoomrec/config:ro
       - ./audio:/home/zoomrec/audio:ro
+      # Zoom settings (e.g. skip join preview, remembered name), survive image updates
+      - ./zoom-profile:/home/zoomrec/.zoom
