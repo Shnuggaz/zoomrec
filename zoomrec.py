@@ -1,5 +1,6 @@
 import atexit
 import logging
+import logging.handlers
 import os
 import random
 import shutil
@@ -13,7 +14,8 @@ import pyautogui
 import requests
 import schedule
 
-from zoomrec_core import (PREVIEW_FILE_NAME, STATUS_DIR_NAME, RecordingSettings,
+from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME,
+                          RecordingSettings,
                           apply_zoom_options, build_join_url, build_record_command,
                           build_remux_command, find_meeting_window, load_meetings,
                           parse_wmctrl, write_status)
@@ -64,6 +66,7 @@ DEBUG_SCREENSHOT_INTERVAL = 300
 # Interval of the live preview image for the web interface during a meeting
 PREVIEW_INTERVAL = 15
 PREVIEW_WIDTH = 640
+ERROR_SCREENSHOT_WIDTH = 1280
 
 
 STATUS = {'state': 'idle'}
@@ -90,23 +93,32 @@ def update_status(**fields):
         logging.error("Could not write status: " + str(ex))
 
 
-def report_error(message):
+def report_error(message, screenshot=False):
+    """Show an error in the web interface, optionally with a screenshot of the virtual screen."""
     logging.error(message)
-    update_status(last_error=message, last_error_at=datetime.now().isoformat(timespec='seconds'))
+    has_screenshot = screenshot and save_screenshot(ERROR_SCREENSHOT_NAME, ERROR_SCREENSHOT_WIDTH)
+    update_status(last_error=message, last_error_at=datetime.now().isoformat(timespec='seconds'),
+                  last_error_screenshot=bool(has_screenshot))
+
+
+def save_screenshot(file_name, width):
+    """Scaled JPEG screenshot of the virtual screen in the status directory."""
+    try:
+        image = pyautogui.screenshot()
+        height = round(image.height * width / image.width)
+        image = image.resize((width, height)).convert('RGB')
+        os.makedirs(STATUS_DIR, exist_ok=True)
+        path = os.path.join(STATUS_DIR, file_name)
+        image.save(path + ".tmp", format='JPEG', quality=75)
+        os.replace(path + ".tmp", path)
+        return True
+    except Exception as ex:
+        logging.error("Could not save screenshot: " + str(ex))
+        return False
 
 
 def save_preview():
-    """Small screenshot of the virtual screen for the web interface."""
-    try:
-        image = pyautogui.screenshot()
-        height = round(image.height * PREVIEW_WIDTH / image.width)
-        image = image.resize((PREVIEW_WIDTH, height)).convert('RGB')
-        os.makedirs(STATUS_DIR, exist_ok=True)
-        path = os.path.join(STATUS_DIR, PREVIEW_FILE_NAME)
-        image.save(path + ".tmp", format='JPEG', quality=70)
-        os.replace(path + ".tmp", path)
-    except Exception as ex:
-        logging.error("Could not save preview: " + str(ex))
+    save_screenshot(PREVIEW_FILE_NAME, PREVIEW_WIDTH)
 
 
 def remove_preview():
@@ -288,7 +300,7 @@ def join(meet_id, meet_pw, duration, description):
         record_meeting(meet_id, meet_pw, duration, description)
     except Exception as ex:
         logging.exception("Recording of %s failed" % description)
-        report_error("Recording of '{}' failed: {}".format(description, ex))
+        report_error("Recording of '{}' failed: {}".format(description, ex), screenshot=True)
         send_telegram_message("Recording of '{}' failed: {}".format(description, ex))
         exit_process_by_name("zoom")
         exit_process_by_name("ffmpeg")
@@ -316,17 +328,25 @@ def record_meeting(meet_id, meet_pw, duration, description):
     logging.info("Waiting for meeting window..")
     meeting = None
     last_preview = 0
+    seen_titles = []
     while meeting is None and datetime.now() < end_date:
         time.sleep(2)
-        meeting = find_meeting_window(list_windows())
+        windows = list_windows()
+        meeting = find_meeting_window(windows)
+        # Log every Zoom window title once, so unknown dialogs can be identified later
+        for window in windows:
+            if window.wm_class == 'zoom.zoom' and window.title not in seen_titles:
+                seen_titles.append(window.title)
+                logging.info("Zoom window: '%s'" % window.title)
         if time.time() - last_preview >= PREVIEW_INTERVAL:
             save_preview()
             update_status()
             last_preview = time.time()
 
     if meeting is None:
-        report_error("Could not join '{}': meeting window did not appear until the planned end "
-                     "(waiting room not opened?)".format(description))
+        report_error("Could not join '{}': meeting window did not appear until the planned end. "
+                     "Zoom windows seen: {}".format(description, ", ".join(
+                         "'%s'" % t for t in seen_titles) or "none"), screenshot=True)
         debug_screenshot(description, "join_error")
         if ffmpeg_debug is not None:
             stop_recording(ffmpeg_debug)
@@ -459,6 +479,12 @@ def csv_mtime():
 
 def main():
     os.makedirs(REC_PATH, exist_ok=True)
+    os.makedirs(STATUS_DIR, exist_ok=True)
+    # Keep a log file next to the status, the terminal on the virtual desktop is not persistent
+    log_file = logging.handlers.RotatingFileHandler(
+        os.path.join(STATUS_DIR, 'zoomrec.log'), maxBytes=1_000_000, backupCount=3)
+    log_file.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logging.getLogger().addHandler(log_file)
     if DEBUG:
         os.makedirs(DEBUG_PATH, exist_ok=True)
 

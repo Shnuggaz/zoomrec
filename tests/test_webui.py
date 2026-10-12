@@ -128,6 +128,18 @@ class WebUiTest(unittest.TestCase):
         self.assertFalse(status['stale'])
         self.assertIn('disk_free', status)
 
+    def test_error_screenshot(self):
+        status_dir = os.path.join(self.rec, '.zoomrec')
+        write_status(status_dir, {'state': 'idle', 'last_error': 'x', 'last_error_screenshot': True})
+        self.login()
+        self.assertFalse(self.client.get('/api/status').get_json()['error_screenshot'])
+        with open(os.path.join(status_dir, 'last_error.jpg'), 'wb') as f:
+            f.write(b'\xff\xd8jpeg')
+        self.assertTrue(self.client.get('/api/status').get_json()['error_screenshot'])
+        response = self.client.get('/last-error.jpg')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'image/jpeg')
+
     def test_status_api_stale(self):
         write_status(os.path.join(self.rec, '.zoomrec'), {'state': 'idle', 'updated': '2020-01-01T00:00:00'})
         self.login()

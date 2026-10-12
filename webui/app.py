@@ -12,7 +12,8 @@ from flask import (Flask, abort, flash, jsonify, redirect, render_template, requ
                    send_file, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from zoomrec_core import (PREVIEW_FILE_NAME, STATUS_DIR_NAME, WEEKDAYS, MeetingError,
+from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME, WEEKDAYS,
+                          MeetingError,
                           mp4_duration, next_occurrence, parse_meeting, read_meetings_file,
                           read_status, write_meetings_file)
 
@@ -101,6 +102,8 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
         status['preview'] = (status.get('state') in ('joining', 'recording')
                              and not status['stale']
                              and os.path.exists(os.path.join(status_dir, PREVIEW_FILE_NAME)))
+        status['error_screenshot'] = bool(status.get('last_error_screenshot')) and os.path.exists(
+            os.path.join(status_dir, ERROR_SCREENSHOT_NAME))
         return status
 
     def recording_path(name):
@@ -208,14 +211,21 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
     def api_status():
         return jsonify(recorder_status())
 
-    @app.route('/preview.jpg')
-    def preview():
-        path = os.path.join(status_dir, PREVIEW_FILE_NAME)
+    def status_image(file_name):
+        path = os.path.join(status_dir, file_name)
         if not os.path.isfile(path):
             abort(404)
         response = send_file(path, mimetype='image/jpeg', max_age=0)
         response.headers['Cache-Control'] = 'no-store'
         return response
+
+    @app.route('/preview.jpg')
+    def preview():
+        return status_image(PREVIEW_FILE_NAME)
+
+    @app.route('/last-error.jpg')
+    def error_screenshot():
+        return status_image(ERROR_SCREENSHOT_NAME)
 
     @app.route('/watch/<name>')
     def watch(name):

@@ -140,6 +140,7 @@ def next_occurrence(meeting, now):
 STATUS_DIR_NAME = '.zoomrec'
 STATUS_FILE_NAME = 'status.json'
 PREVIEW_FILE_NAME = 'preview.jpg'
+ERROR_SCREENSHOT_NAME = 'last_error.jpg'
 
 
 def write_status(status_dir, status):

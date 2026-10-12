@@ -53,7 +53,10 @@
 
     const errBox = document.getElementById("last-error-box");
     errBox.hidden = !s.last_error;
-    if (s.last_error) document.getElementById("last-error").textContent = `${fmtTime(s.last_error_at)}: ${s.last_error}`;
+    if (s.last_error) document.getElementById("last-error").textContent = `${fmtTime(s.last_error_at)}: ${s.last_error} `;
+    const shot = document.getElementById("last-error-shot");
+    shot.hidden = !s.error_screenshot;
+    if (s.error_screenshot) shot.href = `${cfg.errorShotUrl}?t=${encodeURIComponent(s.last_error_at || "")}`;
 
     preview.hidden = !s.preview;
     if (s.preview) preview.src = `${cfg.previewUrl}?t=${Date.now()}`;

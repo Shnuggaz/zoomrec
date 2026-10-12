@@ -12,7 +12,8 @@
   <dl class="facts">
     <div><dt>Nächste Aufnahme</dt><dd id="next-meeting">–</dd></div>
     <div><dt>Freier Speicher</dt><dd id="disk-free">{{ status.disk_free }}</dd></div>
-    <div id="last-error-box" hidden><dt>Letzter Fehler</dt><dd id="last-error" class="error"></dd></div>
+    <div id="last-error-box" hidden><dt>Letzter Fehler</dt><dd><span id="last-error" class="error"></span>
+      <a id="last-error-shot" href="{{ url_for('error_screenshot') }}" target="_blank" hidden>Screenshot ansehen</a></dd></div>
   </dl>
 </section>
 
@@ -62,6 +63,6 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>window.ZOOMREC = {statusUrl: "{{ url_for('api_status') }}", previewUrl: "{{ url_for('preview') }}"};</script>
+<script>window.ZOOMREC = {statusUrl: "{{ url_for('api_status') }}", previewUrl: "{{ url_for('preview') }}", errorShotUrl: "{{ url_for('error_screenshot') }}"};</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 {% endblock %}
