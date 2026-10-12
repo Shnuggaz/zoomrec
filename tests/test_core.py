@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # noqa: E402
                           build_join_url, build_record_command, build_remux_command,
                           find_meeting_window, load_meetings, parse_meeting,
-                          parse_wmctrl, sanitize_description)
+                          parse_wmctrl, sanitize_description, set_ini_option)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -192,6 +192,34 @@ class WindowTest(unittest.TestCase):
 
     def test_other_app_named_meeting_is_ignored(self):
         self.assertIsNone(find_meeting_window([Window('0x1', 'xfce4-terminal.Xfce4-terminal', 'Meeting')]))
+
+
+class IniOptionTest(unittest.TestCase):
+    CONF = '[General]\nAudioAutoAdjust=false\nhideCrashReport=false\nxwayland=true\n\n[AS]\nshowframewindow=true\n'
+
+    def test_replace_existing_key(self):
+        result = set_ini_option(self.CONF, 'General', 'hideCrashReport', 'true')
+        self.assertIn('hideCrashReport=true', result)
+        self.assertNotIn('hideCrashReport=false', result)
+        self.assertIn('[AS]\nshowframewindow=true', result)
+
+    def test_add_missing_key_to_section(self):
+        result = set_ini_option(self.CONF, 'General', 'newKey', '1')
+        self.assertIn('xwayland=true\nnewKey=1\n\n[AS]', result)
+
+    def test_key_in_other_section_is_not_touched(self):
+        result = set_ini_option(self.CONF, 'General', 'showframewindow', 'false')
+        self.assertIn('[AS]\nshowframewindow=true', result)
+        self.assertIn('showframewindow=false\n\n[AS]', result)
+
+    def test_missing_section(self):
+        result = set_ini_option('[AS]\nx=1\n', 'General', 'k', 'v')
+        self.assertTrue(result.startswith('[General]\nk=v\n'))
+
+    def test_prefix_of_key_does_not_match(self):
+        result = set_ini_option('[General]\nhideCrashReportX=1\n', 'General', 'hideCrashReport', 'true')
+        self.assertIn('hideCrashReportX=1', result)
+        self.assertIn('hideCrashReport=true', result)
 
 
 if __name__ == '__main__':

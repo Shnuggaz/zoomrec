@@ -199,3 +199,31 @@ def find_meeting_window(windows):
         if window.wm_class == 'zoom.zoom' and window.title == 'Meeting':
             return window
     return None
+
+
+def set_ini_option(text, section, key, value):
+    """Set key=value in a section of an INI text (as written by Qt), keeping everything else."""
+    lines = text.splitlines()
+    header = f'[{section}]'
+    in_section = False
+    insert_at = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            if in_section:
+                break
+            in_section = stripped == header
+            if in_section:
+                insert_at = i + 1
+            continue
+        if in_section:
+            if stripped.split('=', 1)[0] == key:
+                lines[i] = f'{key}={value}'
+                return '\n'.join(lines) + '\n'
+            if stripped:
+                insert_at = i + 1
+    if insert_at is None:
+        lines = [header, f'{key}={value}', ''] + lines
+    else:
+        lines.insert(insert_at, f'{key}={value}')
+    return '\n'.join(lines) + '\n'

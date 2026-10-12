@@ -15,7 +15,7 @@ import schedule
 
 from zoomrec_core import (RecordingSettings, build_join_url, build_record_command,
                           build_remux_command, find_meeting_window, load_meetings,
-                          parse_wmctrl)
+                          parse_wmctrl, set_ini_option)
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
@@ -200,7 +200,27 @@ def save_zoom_config():
         logging.error("Could not save Zoom configuration: " + str(ex))
 
 
+# Zoom settings enforced before every start
+ZOOM_OPTIONS = {
+    # Zoom is stopped with a signal after each meeting, which it reports as crash on the next start
+    'hideCrashReport': 'true',
+}
+
+
+def apply_zoom_options():
+    try:
+        with open(ZOOM_CONF) as f:
+            text = f.read()
+        for key, value in ZOOM_OPTIONS.items():
+            text = set_ini_option(text, 'General', key, value)
+        with open(ZOOM_CONF, 'w') as f:
+            f.write(text)
+    except OSError as ex:
+        logging.error("Could not update Zoom configuration: " + str(ex))
+
+
 def start_zoom(meet_id, meet_pw):
+    apply_zoom_options()
     url = build_join_url(meet_id, meet_pw, DISPLAY_NAME)
     if url is None:
         # Link without meeting number, let Zoom handle it
@@ -211,11 +231,15 @@ def start_zoom(meet_id, meet_pw):
 
 
 def stop_zoom(zoom):
+    # Ask Zoom to quit first, kill whatever is left after 10 seconds
     try:
-        os.killpg(os.getpgid(zoom.pid), signal.SIGQUIT)
+        os.killpg(os.getpgid(zoom.pid), signal.SIGTERM)
     except ProcessLookupError:
         pass
-    time.sleep(2)
+    for _ in range(10):
+        if not find_process_id_by_name("zoom"):
+            break
+        time.sleep(1)
     exit_process_by_name("zoom")
     save_zoom_config()
 
