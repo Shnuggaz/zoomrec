@@ -141,6 +141,27 @@ STATUS_DIR_NAME = '.zoomrec'
 STATUS_FILE_NAME = 'status.json'
 PREVIEW_FILE_NAME = 'preview.jpg'
 ERROR_SCREENSHOT_NAME = 'last_error.jpg'
+# Thumbnails of the recordings: <status dir>/thumbs/<recording file name>.jpg
+THUMBS_DIR_NAME = 'thumbs'
+THUMB_WIDTH = 480
+
+
+def thumbnail_path(status_dir, recording_name):
+    return os.path.join(status_dir, THUMBS_DIR_NAME, recording_name + '.jpg')
+
+
+def thumbnail_time(duration):
+    """Point in the video for the thumbnail: after the start, when slides are usually shown."""
+    if not duration:
+        return 1.0
+    return round(max(1.0, min(300.0, duration * 0.2)), 1)
+
+
+def build_thumbnail_command(source, target, seconds):
+    return [
+        'ffmpeg', '-nostats', '-loglevel', 'error', '-y', '-ss', str(seconds), '-i', source,
+        '-frames:v', '1', '-vf', f'scale={THUMB_WIDTH}:-2', '-q:v', '5', target,
+    ]
 
 
 def write_status(status_dir, status):

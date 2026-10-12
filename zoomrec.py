@@ -15,7 +15,8 @@ import requests
 import schedule
 
 from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME,
-                          RecordingSettings,
+                          RecordingSettings, build_thumbnail_command, mp4_duration,
+                          thumbnail_path, thumbnail_time,
                           apply_zoom_options, build_join_url, build_record_command,
                           build_remux_command, find_color_blob, find_meeting_window,
                           is_zoom_blue, load_meetings, parse_wmctrl, write_status)
@@ -277,6 +278,38 @@ def stop_recording(ffmpeg):
         ffmpeg.wait()
 
 
+def create_thumbnail(video_path):
+    """Thumbnail for the web interface library."""
+    if not video_path.endswith('.mp4'):
+        return False
+    target = thumbnail_path(STATUS_DIR, os.path.basename(video_path))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    command = build_thumbnail_command(video_path, target + '.tmp.jpg', thumbnail_time(mp4_duration(video_path)))
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode != 0 or not os.path.exists(target + '.tmp.jpg'):
+        logging.error("Could not create thumbnail for %s: %s" % (
+            video_path, result.stderr.decode(errors='replace')[-300:]))
+        return False
+    os.replace(target + '.tmp.jpg', target)
+    return True
+
+
+def create_missing_thumbnails(limit=5):
+    """Thumbnails for recordings that have none yet (e.g. older recordings), a few at a time."""
+    if STATUS.get('state') != 'idle':
+        return
+    try:
+        names = sorted(n for n in os.listdir(REC_PATH) if n.endswith('.mp4') and not n.startswith('.'))
+    except OSError:
+        return
+    for name in names:
+        if limit <= 0:
+            return
+        if not os.path.exists(thumbnail_path(STATUS_DIR, name)):
+            create_thumbnail(os.path.join(REC_PATH, name))
+            limit -= 1
+
+
 def remux_to_mp4(mkv_path):
     """Convert the finished .mkv recording to .mp4. Keeps the .mkv if that fails."""
     mp4_path = os.path.splitext(mkv_path)[0] + ".mp4"
@@ -460,6 +493,7 @@ def record_meeting(meet_id, meet_pw, duration, description):
     stop_recording(ffmpeg)
     stop_zoom(zoom)
     final_path = remux_to_mp4(filename)
+    create_thumbnail(final_path)
     update_status(last_recording=os.path.basename(final_path),
                   last_recording_at=datetime.now().isoformat(timespec='seconds'))
 
@@ -557,6 +591,7 @@ def main():
         time.sleep(1)
         if time.time() - last_heartbeat >= 10:
             update_status()
+            create_missing_thumbnails()
             last_heartbeat = time.time()
         # Reload the schedule when meetings.csv changes, no restart needed
         current_mtime = csv_mtime()

@@ -13,7 +13,8 @@ from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # n
                           parse_wmctrl, sanitize_description, set_ini_option,
                           apply_zoom_options, mp4_duration, next_occurrence,
                           read_meetings_file, read_status, write_meetings_file,
-                          write_status, find_color_blob, is_zoom_blue)
+                          write_status, find_color_blob, is_zoom_blue,
+                          build_thumbnail_command, thumbnail_path, thumbnail_time)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -355,6 +356,20 @@ class ColorBlobTest(unittest.TestCase):
         self.assertFalse(is_zoom_blue((255, 255, 255)))
         self.assertFalse(is_zoom_blue((34, 38, 44)))
         self.assertFalse(is_zoom_blue((220, 50, 50)))
+
+
+class ThumbnailTest(unittest.TestCase):
+    def test_time(self):
+        self.assertEqual(thumbnail_time(None), 1.0)
+        self.assertEqual(thumbnail_time(3), 1.0)
+        self.assertEqual(thumbnail_time(100), 20.0)
+        self.assertEqual(thumbnail_time(5400), 300.0)
+
+    def test_path_and_command(self):
+        self.assertEqual(thumbnail_path('/r/.zoomrec', 'a.mp4'), '/r/.zoomrec/thumbs/a.mp4.jpg')
+        cmd = build_thumbnail_command('a.mp4', 't.jpg', 20.0)
+        self.assertEqual(cmd[-1], 't.jpg')
+        self.assertIn('-ss 20.0 -i a.mp4', ' '.join(cmd))
 
 
 if __name__ == '__main__':
