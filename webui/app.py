@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from flask import (Flask, abort, flash, jsonify, redirect, render_template, request,
                    send_file, session, url_for)
 from markupsafe import Markup, escape
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from transcription import (SCRIBERR_RUNNING, delete_transcript, format_timestamp, read_state,
@@ -21,6 +22,11 @@ from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_N
                           MeetingError,
                           mp4_duration, next_occurrence, parse_meeting, read_meetings_file,
                           read_status, thumbnail_path, write_meetings_file)
+
+# Login lockout: after LOGIN_MAX_FAILURES wrong passwords within LOGIN_WINDOW seconds an IP
+# address is blocked for LOGIN_WINDOW seconds
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW = 15 * 60
 
 # Recorder writes its status about every 10 seconds
 STATUS_STALE_SECONDS = 60
@@ -113,7 +119,8 @@ def week_view(meetings, hues):
             'first': first, 'span_hours': last - first}
 
 
-def create_app(recordings_dir=None, meetings_csv=None, password=None, password_hash=None):
+def create_app(recordings_dir=None, meetings_csv=None, password=None, password_hash=None,
+               trust_proxy=None):
     recordings_dir = recordings_dir or os.getenv('RECORDINGS_DIR', '/data/recordings')
     meetings_csv = meetings_csv or os.getenv('MEETINGS_CSV', '/data/config/meetings.csv')
     status_dir = os.path.join(recordings_dir, STATUS_DIR_NAME)
@@ -126,13 +133,22 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
         password_hash = generate_password_hash(password)
     os.environ.pop('WEB_PASSWORD', None)
 
+    if trust_proxy is None:
+        trust_proxy = os.getenv('TRUST_PROXY', 'false').lower() == 'true'
+
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY=load_secret_key(os.path.dirname(meetings_csv)),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
+        # Behind a HTTPS reverse proxy the session cookie is only sent over HTTPS
+        SESSION_COOKIE_SECURE=trust_proxy,
         PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     )
+    if trust_proxy:
+        # Client address and scheme from X-Forwarded-For / X-Forwarded-Proto of one proxy
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    login_failures = {}
     duration_cache = {}
 
     # --- helpers -------------------------------------------------------------
@@ -254,6 +270,15 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 abort(400)
         return None
 
+    @app.after_request
+    def security_headers(response):
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('Referrer-Policy', 'same-origin')
+        if trust_proxy:
+            response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000')
+        return response
+
     @app.context_processor
     def template_globals():
         return {'csrf_token': session.get('csrf', ''), 'weekday_names': WEEKDAY_NAMES}
@@ -262,7 +287,15 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
     def login():
         error = None
         if request.method == 'POST':
+            now = time.time()
+            client = request.remote_addr or '?'
+            recent = [t for t in login_failures.get(client, []) if now - t < LOGIN_WINDOW]
+            login_failures[client] = recent
+            if len(recent) >= LOGIN_MAX_FAILURES:
+                minutes = math.ceil((LOGIN_WINDOW - (now - recent[0])) / 60)
+                return render_template('login.html', error=f'Zu viele Fehlversuche. Bitte in {minutes} Minuten erneut versuchen.'), 429
             if check_password_hash(password_hash, request.form.get('password', '')):
+                login_failures.pop(client, None)
                 session.clear()
                 session.permanent = True
                 session['auth'] = True
@@ -271,6 +304,7 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 if not target.startswith('/') or target.startswith('//'):
                     target = url_for('index')
                 return redirect(target)
+            recent.append(now)
             time.sleep(1)  # slow down guessing
             error = 'Falsches Passwort.'
         return render_template('login.html', error=error)

@@ -292,6 +292,40 @@ class WebUiTest(unittest.TestCase):
         self.client.post(f'/recordings/{self.video}/delete', data={'csrf': self.csrf})
         self.assertFalse(os.path.exists(os.path.join(self.rec, '.zoomrec', 'transcripts', self.video + '.json')))
 
+    def test_login_lockout(self):
+        for _ in range(5):
+            self.assertEqual(self.client.post('/login', data={'password': 'falsch'}).status_code, 200)
+        response = self.client.post('/login', data={'password': 'geheim'})
+        self.assertEqual(response.status_code, 429)
+        self.assertIn('Zu viele Fehlversuche', response.get_data(as_text=True))
+        # Another address is not affected
+        response = self.client.post('/login', data={'password': 'geheim'}, environ_base={'REMOTE_ADDR': '10.0.0.2'})
+        self.assertEqual(response.status_code, 302)
+
+    def test_security_headers(self):
+        response = self.client.get('/login')
+        self.assertEqual(response.headers['X-Frame-Options'], 'DENY')
+        self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
+        self.assertNotIn('Strict-Transport-Security', response.headers)
+
+    def test_behind_proxy(self):
+        from app import create_app
+        app = create_app(recordings_dir=self.rec, meetings_csv=self.csv, password='geheim', trust_proxy=True)
+        client = app.test_client()
+        headers = {'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '203.0.113.7', 'X-Forwarded-Host': 'rec.example.com'}
+        response = client.post('/login', data={'password': 'geheim'}, headers=headers)
+        cookie = response.headers['Set-Cookie']
+        self.assertIn('Secure', cookie)
+        self.assertIn('HttpOnly', cookie)
+        self.assertEqual(response.headers['Location'], '/')
+        self.assertIn('max-age', response.headers['Strict-Transport-Security'])
+        # Lockout uses the forwarded client address
+        for _ in range(5):
+            client.post('/login', data={'password': 'x'}, headers=headers)
+        self.assertEqual(client.post('/login', data={'password': 'geheim'}, headers=headers).status_code, 429)
+        other = dict(headers, **{'X-Forwarded-For': '203.0.113.8'})
+        self.assertEqual(client.post('/login', data={'password': 'geheim'}, headers=other).status_code, 302)
+
     def test_missing_password_refuses_start(self):
         from app import create_app
         os.environ.pop('WEB_PASSWORD', None)
