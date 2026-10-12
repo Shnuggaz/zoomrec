@@ -101,10 +101,10 @@ def load_meetings(path):
 
 @dataclass(frozen=True)
 class RecordingSettings:
-    fps: int = 15
-    crf: int = 28
+    fps: int = 30
+    crf: int = 24
     preset: str = 'veryfast'
-    audio_bitrate: str = '128k'
+    audio_bitrate: str = '192k'
     threads: int = 2
     audio_source: str = 'speaker.monitor'
 
@@ -126,7 +126,7 @@ def build_record_command(display, resolution, output, settings=RecordingSettings
     return [
         'ffmpeg', '-nostats', '-loglevel', 'error', '-y',
         '-thread_queue_size', '1024',
-        '-f', 'pulse', '-ac', '2', '-i', settings.audio_source,
+        '-f', 'pulse', '-sample_rate', '48000', '-ac', '2', '-i', settings.audio_source,
         '-thread_queue_size', '1024',
         '-f', 'x11grab', '-draw_mouse', '0',
         '-framerate', str(settings.fps), '-video_size', resolution, '-i', display,
@@ -134,7 +134,7 @@ def build_record_command(display, resolution, output, settings=RecordingSettings
         '-c:v', 'libx264', '-preset', settings.preset, '-crf', str(settings.crf),
         '-pix_fmt', 'yuv420p', '-g', str(settings.fps * 10),
         '-threads', str(settings.threads),
-        '-c:a', 'aac', '-b:a', settings.audio_bitrate, '-af', 'aresample=async=1',
+        '-c:a', 'aac', '-b:a', settings.audio_bitrate, '-ar', '48000', '-af', 'aresample=async=1',
         output,
     ]
 
