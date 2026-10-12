@@ -17,8 +17,8 @@ import schedule
 from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME,
                           RecordingSettings,
                           apply_zoom_options, build_join_url, build_record_command,
-                          build_remux_command, find_meeting_window, load_meetings,
-                          parse_wmctrl, write_status)
+                          build_remux_command, find_color_blob, find_meeting_window,
+                          is_zoom_blue, load_meetings, parse_wmctrl, write_status)
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
@@ -67,6 +67,15 @@ DEBUG_SCREENSHOT_INTERVAL = 300
 PREVIEW_INTERVAL = 15
 PREVIEW_WIDTH = 640
 ERROR_SCREENSHOT_WIDTH = 1280
+
+# Zoom windows that are not dialogs needing action
+KNOWN_ZOOM_TITLES = {'Zoom Workplace', 'Meeting', ''}
+# Title of Zoom's error dialogs while joining, e.g. "Invalid meeting ID"
+ERROR_DIALOG_TITLES = {'Leave meeting'}
+# The join preview is a small window; larger windows (waiting room) are never clicked
+PREVIEW_MAX_WIDTH = 1200
+# Area at the bottom right of the preview window that contains the blue "Join" button
+JOIN_BUTTON_AREA = (220, 90)
 
 
 STATUS = {'state': 'idle'}
@@ -211,6 +220,38 @@ def show_meeting_fullscreen(meeting):
     subprocess.run(['xdotool', 'mousemove', '0', '0'], stderr=subprocess.DEVNULL)
 
 
+def window_geometry(window_id):
+    """Position and size of the window content as (x, y, width, height)."""
+    result = subprocess.run(['xdotool', 'getwindowgeometry', '--shell', window_id],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+    values = dict(line.split('=', 1) for line in result.stdout.decode().splitlines() if '=' in line)
+    try:
+        return int(values['X']), int(values['Y']), int(values['WIDTH']), int(values['HEIGHT'])
+    except (KeyError, ValueError):
+        return None
+
+
+def click_join_in_preview(window):
+    """Click the blue "Join" button at the bottom right of Zoom's join preview window."""
+    geometry = window_geometry(window.id)
+    if geometry is None:
+        return False
+    x, y, width, height = geometry
+    if width > PREVIEW_MAX_WIDTH:
+        return False
+    area_w, area_h = min(JOIN_BUTTON_AREA[0], width), min(JOIN_BUTTON_AREA[1], height)
+    left, top = x + width - area_w, y + height - area_h
+    subprocess.run(['wmctrl', '-i', '-a', window.id])
+    time.sleep(0.5)
+    image = pyautogui.screenshot(region=(left, top, area_w, area_h))
+    button = find_color_blob(image.width, image.height, image.getpixel, is_zoom_blue)
+    if button is None:
+        return False
+    logging.info("Clicking 'Join' in preview window '%s'" % window.title)
+    pyautogui.click(left + button[0], top + button[1])
+    return True
+
+
 def start_recording(description, suffix=""):
     width, height = pyautogui.size()
     resolution = str(width) + 'x' + str(height)
@@ -329,24 +370,39 @@ def record_meeting(meet_id, meet_pw, duration, description):
     meeting = None
     last_preview = 0
     seen_titles = []
+    last_join_click = 0
+    join_error = None
     while meeting is None and datetime.now() < end_date:
         time.sleep(2)
         windows = list_windows()
         meeting = find_meeting_window(windows)
-        # Log every Zoom window title once, so unknown dialogs can be identified later
+        if meeting is not None:
+            break
         for window in windows:
-            if window.wm_class == 'zoom.zoom' and window.title not in seen_titles:
+            if window.wm_class != 'zoom.zoom':
+                continue
+            # Log every Zoom window title once, so unknown dialogs can be identified later
+            if window.title not in seen_titles:
                 seen_titles.append(window.title)
                 logging.info("Zoom window: '%s'" % window.title)
+            if window.title in ERROR_DIALOG_TITLES:
+                join_error = window.title
+            elif window.title not in KNOWN_ZOOM_TITLES and time.time() - last_join_click >= 5:
+                # Probably the join preview (titled with the meeting topic)
+                if click_join_in_preview(window):
+                    last_join_click = time.time()
+        if join_error:
+            break
         if time.time() - last_preview >= PREVIEW_INTERVAL:
             save_preview()
             update_status()
             last_preview = time.time()
 
     if meeting is None:
-        report_error("Could not join '{}': meeting window did not appear until the planned end. "
-                     "Zoom windows seen: {}".format(description, ", ".join(
-                         "'%s'" % t for t in seen_titles) or "none"), screenshot=True)
+        reason = ("Zoom showed an error dialog ('{}')".format(join_error) if join_error
+                  else "meeting window did not appear until the planned end")
+        report_error("Could not join '{}': {}. Zoom windows seen: {}".format(
+            description, reason, ", ".join("'%s'" % t for t in seen_titles) or "none"), screenshot=True)
         debug_screenshot(description, "join_error")
         if ffmpeg_debug is not None:
             stop_recording(ffmpeg_debug)

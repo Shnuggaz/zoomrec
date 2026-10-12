@@ -352,3 +352,23 @@ def apply_zoom_options(conf_path):
             f.write(text)
     except OSError as ex:
         logging.error("Could not update Zoom configuration: " + str(ex))
+
+
+def is_zoom_blue(pixel):
+    """Blue of Zoom's primary buttons (about #0E72ED)."""
+    r, g, b = pixel[:3]
+    return r < 80 and 80 <= g <= 170 and b >= 200
+
+
+def find_color_blob(width, height, getpixel, predicate, min_pixels=50):
+    """Center (x, y) of all pixels matching predicate, None if fewer than min_pixels match."""
+    xs = ys = count = 0
+    for y in range(height):
+        for x in range(width):
+            if predicate(getpixel((x, y))):
+                xs += x
+                ys += y
+                count += 1
+    if count < min_pixels:
+        return None
+    return xs // count, ys // count

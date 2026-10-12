@@ -13,7 +13,7 @@ from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # n
                           parse_wmctrl, sanitize_description, set_ini_option,
                           apply_zoom_options, mp4_duration, next_occurrence,
                           read_meetings_file, read_status, write_meetings_file,
-                          write_status)
+                          write_status, find_color_blob, is_zoom_blue)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -323,6 +323,38 @@ class Mp4DurationTest(unittest.TestCase):
     def test_invalid_file(self):
         self.assertIsNone(mp4_duration(self.write(b'not an mp4 file at all')))
         self.assertIsNone(mp4_duration('/nonexistent.mp4'))
+
+
+class ColorBlobTest(unittest.TestCase):
+    def image(self, width, height, blue_box=None):
+        pixels = {}
+        for y in range(height):
+            for x in range(width):
+                pixels[(x, y)] = (255, 255, 255)
+        if blue_box:
+            x0, y0, x1, y1 = blue_box
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    pixels[(x, y)] = (14, 114, 237)
+        return pixels.__getitem__
+
+    def test_finds_center_of_button(self):
+        getpixel = self.image(220, 90, (150, 40, 204, 72))
+        self.assertEqual(find_color_blob(220, 90, getpixel, is_zoom_blue), (176, 55))
+
+    def test_no_button(self):
+        self.assertIsNone(find_color_blob(220, 90, self.image(220, 90), is_zoom_blue))
+
+    def test_too_few_pixels(self):
+        getpixel = self.image(50, 50, (10, 10, 15, 15))
+        self.assertIsNone(find_color_blob(50, 50, getpixel, is_zoom_blue))
+
+    def test_zoom_blue(self):
+        self.assertTrue(is_zoom_blue((14, 114, 237)))
+        self.assertTrue(is_zoom_blue((14, 114, 237, 255)))
+        self.assertFalse(is_zoom_blue((255, 255, 255)))
+        self.assertFalse(is_zoom_blue((34, 38, 44)))
+        self.assertFalse(is_zoom_blue((220, 50, 50)))
 
 
 if __name__ == '__main__':
