@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import struct
 from dataclasses import dataclass
 from datetime import timedelta
@@ -393,3 +394,25 @@ def find_color_blob(width, height, getpixel, predicate, min_pixels=50):
     if count < min_pixels:
         return None
     return xs // count, ys // count
+
+
+def move_into_library(source, library_dir):
+    """Copy a finished recording into the library and remove the local file.
+
+    The copy is written under a temporary name and renamed when complete, so the web
+    interface, thumbnails and transcription never see a partial file (the library can be
+    a network share on another file system). Raises OSError if the library is unavailable.
+    """
+    target = os.path.join(library_dir, os.path.basename(source))
+    partial = target + '.part'
+    try:
+        shutil.copyfile(source, partial)
+        os.replace(partial, target)
+    except OSError:
+        try:
+            os.remove(partial)
+        except OSError:
+            pass
+        raise
+    os.remove(source)
+    return target

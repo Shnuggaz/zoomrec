@@ -14,7 +14,8 @@ from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # n
                           apply_zoom_options, mp4_duration, next_occurrence,
                           read_meetings_file, read_status, write_meetings_file,
                           write_status, find_color_blob, is_zoom_blue,
-                          build_thumbnail_command, thumbnail_path, thumbnail_time)
+                          build_thumbnail_command, thumbnail_path, thumbnail_time,
+                          move_into_library)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -370,6 +371,28 @@ class ThumbnailTest(unittest.TestCase):
         cmd = build_thumbnail_command('a.mp4', 't.jpg', 20.0)
         self.assertEqual(cmd[-1], 't.jpg')
         self.assertIn('-ss 20.0 -i a.mp4', ' '.join(cmd))
+
+
+class MoveIntoLibraryTest(unittest.TestCase):
+    def test_move(self):
+        with tempfile.TemporaryDirectory() as work, tempfile.TemporaryDirectory() as library:
+            source = os.path.join(work, 'a.mp4')
+            with open(source, 'wb') as f:
+                f.write(b'video' * 1000)
+            target = move_into_library(source, library)
+            self.assertEqual(target, os.path.join(library, 'a.mp4'))
+            self.assertFalse(os.path.exists(source))
+            self.assertEqual(os.listdir(library), ['a.mp4'])
+            with open(target, 'rb') as f:
+                self.assertEqual(len(f.read()), 5000)
+
+    def test_unavailable_library_keeps_source(self):
+        with tempfile.TemporaryDirectory() as work:
+            source = os.path.join(work, 'a.mp4')
+            open(source, 'wb').close()
+            with self.assertRaises(OSError):
+                move_into_library(source, os.path.join(work, 'missing-share'))
+            self.assertTrue(os.path.exists(source))
 
 
 if __name__ == '__main__':

@@ -22,7 +22,8 @@ from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_N
                           thumbnail_path, thumbnail_time,
                           apply_zoom_options, build_join_url, build_record_command,
                           build_remux_command, find_color_blob, find_meeting_window,
-                          is_zoom_blue, load_meetings, parse_wmctrl, write_status)
+                          is_zoom_blue, load_meetings, move_into_library, parse_wmctrl,
+                          write_status)
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
@@ -40,6 +41,8 @@ pyautogui.FAILSAFE = False
 BASE_PATH = os.getenv('HOME')
 CSV_PATH = os.getenv("MEETINGS_CSV", os.path.join(BASE_PATH, "meetings.csv"))
 REC_PATH = os.path.join(BASE_PATH, "recordings")
+# Recordings are written locally and moved into REC_PATH (possibly a network share) when finished
+WORK_PATH = os.path.join(BASE_PATH, "work")
 AUDIO_PATH = os.path.join(BASE_PATH, "audio")
 DEBUG_PATH = os.path.join(REC_PATH, "screenshots")
 # Status and live preview for the web interface
@@ -84,6 +87,10 @@ JOIN_BUTTON_AREA = (220, 90)
 
 
 STATUS = {'state': 'idle'}
+# Files in WORK_PATH that are still being recorded or finished
+ACTIVE_FILES = set()
+# Files in WORK_PATH changed more recently are never treated as left over
+PENDING_MIN_AGE = 120
 
 
 def next_meeting_info():
@@ -260,8 +267,10 @@ def click_join_in_preview(window):
 def start_recording(description, suffix=""):
     width, height = pyautogui.size()
     resolution = str(width) + 'x' + str(height)
-    filename = os.path.join(REC_PATH, time.strftime(TIME_FORMAT) + "-" + description + suffix + ".mkv")
+    os.makedirs(WORK_PATH, exist_ok=True)
+    filename = os.path.join(WORK_PATH, time.strftime(TIME_FORMAT) + "-" + description + suffix + ".mkv")
     command = build_record_command(os.getenv('DISPLAY'), resolution, filename, RECORDING_SETTINGS)
+    ACTIVE_FILES.add(os.path.basename(filename))
     ffmpeg = subprocess.Popen(command, preexec_fn=os.setsid)
     atexit.register(os.killpg, os.getpgid(ffmpeg.pid), signal.SIGQUIT)
     logging.info("Recording to " + filename)
@@ -336,6 +345,55 @@ def transcription_loop():
             worker.step()
         except Exception:
             logging.exception("Transcription step failed")
+
+
+def finish_recording(mkv_path):
+    """Remux the local .mkv to .mp4 and move it into the library.
+
+    Returns the path in the library, or None if the library is not reachable; the file then
+    stays in WORK_PATH and move_pending_recordings() retries later.
+    """
+    local = remux_to_mp4(mkv_path)
+    ACTIVE_FILES.discard(os.path.basename(mkv_path))
+    try:
+        final = move_into_library(local, REC_PATH)
+    except OSError as ex:
+        report_error("Recording saved locally, the library ({}) is not reachable: {}. "
+                     "It is moved automatically when it is available again.".format(REC_PATH, ex))
+        return None
+    logging.info("Moved recording to " + final)
+    create_thumbnail(final)
+    return final
+
+
+def move_pending_recordings():
+    """Move recordings left in WORK_PATH (library was unavailable, or after a crash)."""
+    if STATUS.get('state') != 'idle':
+        return
+    try:
+        names = sorted(os.listdir(WORK_PATH))
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(WORK_PATH, name)
+        try:
+            recently_changed = time.time() - os.path.getmtime(path) < PENDING_MIN_AGE
+        except OSError:
+            continue
+        if name in ACTIVE_FILES or recently_changed:
+            continue
+        if name.endswith('.mkv'):
+            logging.info("Finishing leftover recording " + name)
+            path = remux_to_mp4(path)
+        elif not name.endswith('.mp4'):
+            continue
+        try:
+            final = move_into_library(path, REC_PATH)
+            logging.info("Moved pending recording to " + final)
+            create_thumbnail(final)
+        except OSError as ex:
+            logging.error("Library still not reachable: %s" % ex)
+            return
 
 
 def remux_to_mp4(mkv_path):
@@ -520,10 +578,10 @@ def record_meeting(meet_id, meet_pw, duration, description):
     update_status(state='finishing')
     stop_recording(ffmpeg)
     stop_zoom(zoom)
-    final_path = remux_to_mp4(filename)
-    create_thumbnail(final_path)
-    update_status(last_recording=os.path.basename(final_path),
-                  last_recording_at=datetime.now().isoformat(timespec='seconds'))
+    final_path = finish_recording(filename)
+    if final_path:
+        update_status(last_recording=os.path.basename(final_path),
+                      last_recording_at=datetime.now().isoformat(timespec='seconds'))
 
     send_telegram_message("Meeting '{}' ended.".format(description))
 
@@ -616,12 +674,16 @@ def main():
     last_csv_mtime = csv_mtime()
     last_config_save = time.time()
     last_heartbeat = 0
+    last_move_attempt = 0
     while True:
         schedule.run_pending()
         time.sleep(1)
         if time.time() - last_heartbeat >= 10:
             update_status()
             create_missing_thumbnails()
+            if time.time() - last_move_attempt >= 60:
+                move_pending_recordings()
+                last_move_attempt = time.time()
             last_heartbeat = time.time()
         # Reload the schedule when meetings.csv changes, no restart needed
         current_mtime = csv_mtime()

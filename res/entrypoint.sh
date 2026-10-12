@@ -14,7 +14,7 @@ VNC_IP=$(hostname -i)
 DISPLAY_NUM="${DISPLAY#:}"
 
 # Mounted directories must be writable by the zoomrec user (uid 1000)
-for dir in "$HOME/.zoom" "$HOME/recordings"; do
+for dir in "$HOME/.zoom" "$HOME/recordings" "$HOME/work"; do
     if [[ -d "$dir" && ! -w "$dir" ]]; then
         echo "ERROR: $dir is not writable for uid $(id -u)." >&2
         echo "Run on the host: sudo chown -R 1000:1000 <mounted directory>" >&2

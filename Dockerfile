@@ -170,7 +170,7 @@ COPY zoomrec.py zoomrec_core.py transcription.py ${HOME}/
 # Set permissions
 RUN chmod a+x ${START_DIR}/*.sh && \
     chmod -R a+rw ${START_DIR} && \
-    mkdir -p ${HOME}/recordings ${HOME}/audio ${HOME}/.zoom ${HOME}/config && \
+    mkdir -p ${HOME}/recordings ${HOME}/work ${HOME}/audio ${HOME}/.zoom ${HOME}/config && \
     chown -R zoomrec:zoomrec ${HOME} && \
     find ${HOME}/ -name '*.sh' -exec chmod a+x {} + && \
     find ${HOME}/ -name '*.desktop' -exec chmod a+x {} +
