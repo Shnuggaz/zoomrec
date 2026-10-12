@@ -2,6 +2,7 @@ import atexit
 import logging
 import os
 import random
+import shutil
 import signal
 import subprocess
 import time
@@ -34,6 +35,8 @@ CSV_PATH = os.getenv("MEETINGS_CSV", os.path.join(BASE_PATH, "meetings.csv"))
 REC_PATH = os.path.join(BASE_PATH, "recordings")
 AUDIO_PATH = os.path.join(BASE_PATH, "audio")
 DEBUG_PATH = os.path.join(REC_PATH, "screenshots")
+ZOOM_CONF = os.path.join(BASE_PATH, ".config", "zoomus.conf")
+PROFILE_ZOOM_CONF = os.path.join(BASE_PATH, ".zoom", "zoomus.conf")
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -180,6 +183,23 @@ def remux_to_mp4(mkv_path):
             os.remove(mp4_path)
 
 
+def save_zoom_config():
+    """Copy zoomus.conf into the persistent profile directory when it changed."""
+    try:
+        with open(ZOOM_CONF, 'rb') as f:
+            current = f.read()
+        if os.path.exists(PROFILE_ZOOM_CONF):
+            with open(PROFILE_ZOOM_CONF, 'rb') as f:
+                if f.read() == current:
+                    return
+        tmp = PROFILE_ZOOM_CONF + ".tmp"
+        shutil.copyfile(ZOOM_CONF, tmp)
+        os.replace(tmp, PROFILE_ZOOM_CONF)
+        logging.info("Saved Zoom configuration to profile")
+    except OSError as ex:
+        logging.error("Could not save Zoom configuration: " + str(ex))
+
+
 def start_zoom(meet_id, meet_pw):
     url = build_join_url(meet_id, meet_pw, DISPLAY_NAME)
     if url is None:
@@ -197,6 +217,7 @@ def stop_zoom(zoom):
         pass
     time.sleep(2)
     exit_process_by_name("zoom")
+    save_zoom_config()
 
 
 def join(meet_id, meet_pw, duration, description):
@@ -349,6 +370,7 @@ def main():
     join_ongoing_meeting()
 
     last_csv_mtime = csv_mtime()
+    last_config_save = time.time()
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -361,6 +383,10 @@ def main():
                 setup_schedule()
             except Exception as ex:
                 logging.error("Failed to reload meetings.csv: " + str(ex))
+        # Settings changed manually in Zoom (via VNC) must survive container updates
+        if time.time() - last_config_save >= 60:
+            save_zoom_config()
+            last_config_save = time.time()
         time_of_next_run = schedule.next_run()
         if time_of_next_run is None:
             print("No meetings scheduled", end="\r", flush=True)

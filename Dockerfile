@@ -157,6 +157,11 @@ RUN bash /tmp/check-zoom-libs.sh && rm -f /tmp/check-zoom-libs.sh
 # Allow access to pulseaudio
 RUN adduser zoomrec pulse-access
 
+# Machine ID is kept in the persistent Zoom profile, see entrypoint.sh
+RUN mkdir -p /var/lib/dbus && \
+    ln -sf /home/zoomrec/.zoom/machine-id /etc/machine-id && \
+    ln -sf /home/zoomrec/.zoom/machine-id /var/lib/dbus/machine-id
+
 # Add home resources, startup scripts and python script with resources
 COPY res/home/ ${HOME}/
 COPY res/entrypoint.sh res/xfce.sh ${START_DIR}/

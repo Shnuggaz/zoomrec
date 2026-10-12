@@ -54,15 +54,17 @@ ZOOM_VERSION=7.2.1.5760 docker compose up -d --build
   in `meetings.csv`, with `DISPLAY_NAME` as name. No image recognition is used: the bot waits for the
   Zoom window titled `Meeting` (so it also waits in a waiting room), makes it fullscreen and records
   until the window closes or the planned duration plus 5 minutes has passed.
-- One-time setup of the Zoom client (stored in `zoom-profile/`, survives updates): connect via VNC, join a
+- One-time setup of the Zoom client (stored in `zoom-profile/` together with Zoom's device ID and
+  a machine ID, so it survives image updates): connect via VNC, join a
   test meeting once with `docker exec zoomrec zoom --url='<join link>'`, untick
   "Always show this preview when joining" and keep "Remember my name" ticked.
 - Zoom version: build arg `ZOOM_VERSION` (`latest` by default, downloads `https://zoom.us/client/<version>/zoom_amd64.deb`).
   `ZOOM_DEB_URL` overrides the URL completely. The installed version is printed at the end of the Zoom build step.
 - `config/meetings.csv` is re-read automatically when it changes, no restart needed.
   Invalid rows (unknown weekday, time not `HH:MM`, duration not a number, ...) are skipped and logged.
-- Recordings are H.264/AAC `.mp4` files (1920x1080, 15 fps, CRF 28 by default, roughly 120-250 MB per 90 minutes of slides and speech, about 0.4 CPU cores).
-  Use `VNC_RESOLUTION=1280x720` for smaller files and less CPU.
+- Recordings are H.264/AAC `.mp4` files (1920x1080, 30 fps, CRF 24, AAC 192k at 48 kHz by default).
+  Slides with little motion need a few MB per 10 minutes, a full-screen video up to about 3 MB per minute.
+  Encoding needs about 0.65 CPU cores. Use `RECORD_FPS=15` or `VNC_RESOLUTION=1280x720` to save CPU.
   They are written as `.mkv` while recording, so a crash does not lose the file, and converted to `.mp4` at the end.
   Tune with `RECORD_FPS`, `RECORD_CRF` and `RECORD_THREADS`.
 - Playing a sound into the meeting after joining is off by default (`PLAY_AUDIO=false`).
