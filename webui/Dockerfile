@@ -14,7 +14,7 @@ RUN apt-get update && \
     userdel -r ubuntu 2>/dev/null || true
 
 WORKDIR /app
-COPY zoomrec_core.py /app/
+COPY zoomrec_core.py transcription.py /app/
 COPY webui/app.py webui/wsgi.py /app/
 COPY webui/templates /app/templates
 COPY webui/static /app/static

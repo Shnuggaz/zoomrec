@@ -11,7 +11,11 @@ from datetime import datetime, timedelta
 
 from flask import (Flask, abort, flash, jsonify, redirect, render_template, request,
                    send_file, session, url_for)
+from markupsafe import Markup, escape
 from werkzeug.security import check_password_hash, generate_password_hash
+
+from transcription import (SCRIBERR_RUNNING, delete_transcript, format_timestamp, read_state,
+                           read_transcript, search_segments, transcript_path, vtt_path, write_state)
 
 from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME, WEEKDAYS,
                           MeetingError,
@@ -64,6 +68,14 @@ def format_duration(seconds):
     seconds = int(round(seconds))
     hours, rest = divmod(seconds, 3600)
     return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
+
+
+def highlight(text, query):
+    """HTML-escaped text with all words of the query wrapped in <mark>."""
+    result = str(escape(text))
+    for word in sorted({w for w in query.split() if w}, key=len, reverse=True):
+        result = re.sub('(' + re.escape(str(escape(word))) + ')', r'<mark>\1</mark>', result, flags=re.IGNORECASE)
+    return Markup(result)
 
 
 def format_total(seconds):
@@ -192,10 +204,33 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 'thumb_version': int(os.path.getmtime(thumb)) if os.path.exists(thumb) else None,
             })
         hues = all_hues(i['title'] for i in items)
+        transcripts = read_state(status_dir)
         for item in items:
             item['hue'] = hues[item['title']]
+            item['transcript'] = transcript_state(item['name'], transcripts)
         items.sort(key=lambda i: i['date'], reverse=True)
         return items
+
+    def transcript_state(name, state):
+        if os.path.exists(transcript_path(status_dir, name)):
+            return 'done'
+        status = (state.get(name) or {}).get('status')
+        if status in SCRIBERR_RUNNING:
+            return 'running'
+        return 'failed' if status == 'failed' else None
+
+    transcript_cache = {}
+
+    def cached_transcript(name):
+        try:
+            mtime = os.path.getmtime(transcript_path(status_dir, name))
+        except OSError:
+            return None
+        cached = transcript_cache.get(name)
+        if cached is None or cached[0] != mtime:
+            cached = (mtime, read_transcript(status_dir, name))
+            transcript_cache[name] = cached
+        return cached[1]
 
     def load_schedule():
         try:
@@ -304,8 +339,55 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
         position = next(i for i, r in enumerate(series) if r['name'] == name)
         previous = series[position - 1] if position > 0 else None
         following = series[position + 1] if position + 1 < len(series) else None
+        transcript = cached_transcript(name) if item['transcript'] == 'done' else None
+        error = (read_state(status_dir).get(name) or {}).get('error') if item['transcript'] == 'failed' else None
+        try:
+            start = max(0.0, float(request.args.get('t', 0)))
+        except ValueError:
+            start = 0.0
         return render_template('watch.html', item=item, series=series, position=position + 1,
-                               previous=previous, following=following)
+                               previous=previous, following=following, transcript=transcript,
+                               transcript_error=error, start=start, timestamp=format_timestamp)
+
+    @app.route('/transcripts/<name>.vtt')
+    def subtitles(name):
+        recording_path(name)
+        path = vtt_path(status_dir, name)
+        if not os.path.isfile(path):
+            abort(404)
+        return send_file(path, mimetype='text/vtt', max_age=0)
+
+    @app.route('/recordings/<name>/transcribe', methods=['POST'])
+    def retranscribe(name):
+        recording_path(name)
+        delete_transcript(status_dir, name)
+        state = read_state(status_dir)
+        state.pop(name, None)
+        write_state(status_dir, state)
+        flash('Transkription wird neu gestartet.', 'ok')
+        return redirect(request.form.get('next') or url_for('watch', name=name))
+
+    @app.route('/search')
+    def search():
+        query = request.args.get('q', '').strip()
+        results = []
+        total = 0
+        recordings = [r for r in list_recordings() if r['playable']]
+        transcribed = sum(1 for r in recordings if r['transcript'] == 'done')
+        if query:
+            for r in recordings:
+                transcript = cached_transcript(r['name']) if r['transcript'] == 'done' else None
+                if not transcript:
+                    continue
+                matches = search_segments(transcript['segments'], query)
+                if matches:
+                    total += len(matches)
+                    results.append({'recording': r, 'matches': [
+                        {'start': m['start'], 'time': format_timestamp(m['start']),
+                         'text': highlight(m['text'], query)} for m in matches[:50]],
+                        'more': max(0, len(matches) - 50)})
+        return render_template('search.html', query=query, results=results, total=total,
+                               transcribed=transcribed, count=len(recordings))
 
     @app.route('/recordings/<name>')
     def stream(name):
@@ -327,6 +409,7 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 os.remove(thumbnail_path(status_dir, name))
             except OSError:
                 pass
+            delete_transcript(status_dir, name)
             flash('Aufnahme gelöscht.', 'ok')
         return redirect(url_for('index'))
 

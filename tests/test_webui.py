@@ -233,6 +233,65 @@ class WebUiTest(unittest.TestCase):
         self.assertAlmostEqual(first['top'], 60 * 100 / (13 * 60))
         self.assertEqual(first['end'], '11:00')
 
+    def add_transcript(self, name=None):
+        from transcription import TRANSCRIPTS_DIR_NAME, to_vtt
+        name = name or self.video
+        directory = os.path.join(self.rec, '.zoomrec', TRANSCRIPTS_DIR_NAME)
+        os.makedirs(directory, exist_ok=True)
+        segments = [{'start': 12.0, 'end': 15.0, 'text': 'Heute: Eigenwerte <und> Eigenvektoren.'},
+                    {'start': 3725.0, 'end': 3730.0, 'text': 'Der Eigenwert kommt zur Prüfung.'}]
+        with open(os.path.join(directory, name + '.json'), 'w') as f:
+            import json
+            json.dump({'language': 'de', 'segments': segments}, f)
+        with open(os.path.join(directory, name + '.vtt'), 'w') as f:
+            f.write(to_vtt(segments))
+
+    def test_search_transcripts(self):
+        self.add_transcript()
+        self.login()
+        html = self.client.get('/search?q=eigenwert').get_data(as_text=True)
+        self.assertIn('2 Treffer in 1 Aufnahme', html)
+        self.assertIn('<mark>Eigenwert</mark>e &lt;und&gt;', html)
+        self.assertIn(f'/watch/{self.video}?t=3725.0', html)
+        self.assertIn('1:02:05', html)
+        html = self.client.get('/search?q=quantenphysik').get_data(as_text=True)
+        self.assertIn('Nichts gefunden', html)
+
+    def test_search_without_transcripts(self):
+        self.login()
+        self.assertIn('Noch keine Transkripte', self.client.get('/search').get_data(as_text=True))
+
+    def test_watch_with_transcript(self):
+        self.add_transcript()
+        self.login()
+        html = self.client.get(f'/watch/{self.video}?t=3725').get_data(as_text=True)
+        self.assertIn('data-start="3725.0"', html)
+        self.assertIn(f'src="/transcripts/{self.video}.vtt"', html)
+        self.assertIn('Heute: Eigenwerte &lt;und&gt; Eigenvektoren.', html)
+        response = self.client.get(f'/transcripts/{self.video}.vtt')
+        self.assertEqual(response.mimetype, 'text/vtt')
+        self.assertTrue(response.get_data(as_text=True).startswith('WEBVTT'))
+        self.assertEqual(self.client.get('/transcripts/..%2Fx.mp4.vtt').status_code, 404)
+
+    def test_transcript_badges_and_retry(self):
+        from transcription import write_state
+        status_dir = os.path.join(self.rec, '.zoomrec')
+        write_state(status_dir, {self.video: {'status': 'failed', 'error': 'GPU out of memory'}})
+        self.login()
+        self.assertIn('Transkription fehlgeschlagen', self.client.get('/').get_data(as_text=True))
+        self.assertIn('GPU out of memory', self.client.get(f'/watch/{self.video}').get_data(as_text=True))
+        self.client.post(f'/recordings/{self.video}/transcribe', data={'csrf': self.csrf})
+        from transcription import read_state
+        self.assertEqual(read_state(status_dir), {})
+        write_state(status_dir, {self.video: {'status': 'processing', 'job_id': 'j'}})
+        self.assertIn('Wird transkribiert', self.client.get('/').get_data(as_text=True))
+
+    def test_delete_removes_transcript(self):
+        self.add_transcript()
+        self.login()
+        self.client.post(f'/recordings/{self.video}/delete', data={'csrf': self.csrf})
+        self.assertFalse(os.path.exists(os.path.join(self.rec, '.zoomrec', 'transcripts', self.video + '.json')))
+
     def test_missing_password_refuses_start(self):
         from app import create_app
         os.environ.pop('WEB_PASSWORD', None)

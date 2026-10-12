@@ -187,7 +187,8 @@
     });
     video.addEventListener("loadedmetadata", () => {
       const pos = store.get(posKey(name));
-      if (pos && pos.t > 5 && pos.t < video.duration - 10) video.currentTime = pos.t;
+      const jump = parseFloat(video.dataset.start || "0") > 0;
+      if (!jump && pos && pos.t > 5 && pos.t < video.duration - 10) video.currentTime = pos.t;
       setRate(store.get("zoomrec-rate") || 1);
     });
     let lastSave = 0;
@@ -210,6 +211,57 @@
         else if (video.requestFullscreen) video.requestFullscreen();
         else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
       }
+    });
+  }
+
+  // --- Transcript next to the player --------------------------------------
+  const segmentList = $("segments");
+  if (video && segmentList) {
+    const items = Array.from(segmentList.querySelectorAll("li"));
+    let current = null;
+    let userScrolled = 0;
+    segmentList.addEventListener("wheel", () => { userScrolled = Date.now(); }, { passive: true });
+    segmentList.addEventListener("touchmove", () => { userScrolled = Date.now(); }, { passive: true });
+    segmentList.addEventListener("click", (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      video.currentTime = parseFloat(li.dataset.start);
+      video.play();
+    });
+    video.addEventListener("timeupdate", () => {
+      const t = video.currentTime;
+      const li = items.find((el) => t >= parseFloat(el.dataset.start) && t < parseFloat(el.dataset.end));
+      if (!li || li === current) return;
+      if (current) current.classList.remove("active");
+      li.classList.add("active");
+      current = li;
+      // Follow the playback unless the list was scrolled by hand in the last 8 seconds
+      if (Date.now() - userScrolled > 8000 && !li.hidden) {
+        segmentList.scrollTop = li.offsetTop - segmentList.offsetTop - segmentList.clientHeight / 3;
+      }
+    });
+    const filter = $("transcript-filter");
+    filter.addEventListener("input", () => {
+      const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let visible = 0;
+      items.forEach((li) => {
+        const text = li.lastElementChild.textContent.toLowerCase();
+        li.hidden = words.length > 0 && !words.every((w) => text.includes(w));
+        if (!li.hidden) visible++;
+      });
+      $("no-segments").hidden = visible > 0;
+    });
+  }
+  if (video) {
+    // Jump to ?t= from search results
+    const start = parseFloat(video.dataset.start || "0");
+    if (start > 0) {
+      video.addEventListener("loadedmetadata", () => { video.currentTime = start; }, { once: true });
+    }
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "c" || ["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+      const track = video.textTracks[0];
+      if (track) track.mode = track.mode === "showing" ? "hidden" : "showing";
     });
   }
 

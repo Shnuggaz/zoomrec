@@ -44,7 +44,7 @@
       <p class="muted small">{{ stats.count }} Aufnahme{{ '' if stats.count == 1 else 'n' }} · {{ stats.total }} · {{ stats.size }}</p>
     </div>
     {% if recordings %}
-    <label class="search">{{ icon('search', 16) }}<input type="search" id="search" placeholder="Suchen…" aria-label="Aufnahmen durchsuchen"></label>
+    <form class="search" action="{{ url_for('search') }}" title="Enter: in den Transkripten suchen">{{ icon('search', 16) }}<input type="search" id="search" name="q" placeholder="Suchen…  ↵ in Transkripten" aria-label="Aufnahmen durchsuchen"></form>
     {% endif %}
   </div>
   {% if courses|length > 1 %}
@@ -83,7 +83,10 @@
       <div class="card-body">
         <div class="card-text">
           <h3 title="{{ r.title }}">{{ r.title }}</h3>
-          <p class="muted small">{{ weekday_names[r.date.strftime('%A').lower()][:2] }}., {{ r.date.strftime('%d.%m.%Y · %H:%M') }}</p>
+          <p class="muted small">{{ weekday_names[r.date.strftime('%A').lower()][:2] }}., {{ r.date.strftime('%d.%m.%Y · %H:%M') }}
+            {%- if r.transcript == 'done' %} <span class="tx-badge" title="Transkript vorhanden">{{ icon('list', 13) }}</span>
+            {%- elif r.transcript == 'running' %} <span class="tx-badge running" title="Wird transkribiert">{{ icon('clock', 13) }}</span>
+            {%- elif r.transcript == 'failed' %} <span class="tx-badge failed" title="Transkription fehlgeschlagen">{{ icon('alert', 13) }}</span>{% endif %}</p>
           {% if r.name.endswith('.mkv') and not r.in_progress %}<p class="small warn">MKV, nicht konvertiert</p>{% endif %}
         </div>
         {% if not r.in_progress %}

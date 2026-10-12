@@ -8,7 +8,9 @@
       <video class="player" id="player" controls preload="metadata" playsinline
              src="{{ url_for('stream', name=item.name) }}"
              {% if item.thumb_version %}poster="{{ url_for('thumbnail', name=item.name, v=item.thumb_version) }}"{% endif %}
-             data-name="{{ item.name }}"></video>
+             data-name="{{ item.name }}" data-start="{{ start }}">
+      {% if transcript %}<track kind="subtitles" srclang="de" label="Deutsch (automatisch)" src="{{ url_for('subtitles', name=item.name) }}">{% endif %}
+    </video>
     </div>
     <div class="watch-info">
       <div>
@@ -27,8 +29,33 @@
       <div class="segmented" id="speed">
         {% for rate in ['1', '1.25', '1.5', '1.75', '2'] %}<button data-rate="{{ rate }}" class="{{ 'active' if rate == '1' }}">{{ rate|replace('.', ',') }}×</button>{% endfor %}
       </div>
-      <span class="muted small keys"><kbd>Leertaste</kbd> Pause · <kbd>←</kbd><kbd>→</kbd> 10 s · <kbd>F</kbd> Vollbild</span>
+      <span class="muted small keys"><kbd>Leertaste</kbd> Pause · <kbd>←</kbd><kbd>→</kbd> 10 s · <kbd>F</kbd> Vollbild{% if transcript %} · <kbd>C</kbd> Untertitel{% endif %}</span>
     </div>
+    <section class="transcript">
+      <div class="transcript-head">
+        <h2>Transkript</h2>
+        {% if transcript %}
+        <label class="search small-search">{{ icon('search', 15) }}<input type="search" id="transcript-filter" placeholder="Im Transkript suchen"></label>
+        {% endif %}
+      </div>
+      {% if transcript %}
+        <ol class="segments" id="segments">
+          {% for s in transcript.segments %}
+          <li data-start="{{ s.start }}" data-end="{{ s.end }}"><button class="ts">{{ timestamp(s.start) }}</button><span>{{ s.text }}</span></li>
+          {% endfor %}
+        </ol>
+        <p class="muted small" id="no-segments" hidden>Keine Stelle gefunden.</p>
+      {% elif item.transcript == 'running' %}
+        <p class="muted">{{ icon('clock', 16) }} Wird gerade von Scriberr transkribiert. Das kann je nach Länge eine Weile dauern.</p>
+      {% elif item.transcript == 'failed' %}
+        <div class="alert">{{ icon('alert') }}<div>Die Transkription ist fehlgeschlagen{% if transcript_error %}: {{ transcript_error }}{% endif %}
+          <form method="post" action="{{ url_for('retranscribe', name=item.name) }}">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="btn">Erneut versuchen</button>
+          </form></div></div>
+      {% else %}
+        <p class="muted">Noch kein Transkript. Ist Scriberr eingerichtet, wird die Aufnahme automatisch transkribiert.</p>
+      {% endif %}
+    </section>
   </div>
   {% if series|length > 1 %}
   <aside class="series">

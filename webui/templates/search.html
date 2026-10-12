@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ query ~ ' – ' if query }}Suche – zoomrec{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>In Vorlesungen suchen</h1>
+    <p class="muted small">Durchsucht die Transkripte von {{ transcribed }} der {{ count }} Aufnahmen.</p>
+  </div>
+</div>
+<form class="search big-search" action="{{ url_for('search') }}">
+  {{ icon('search', 20) }}<input type="search" name="q" value="{{ query }}" placeholder="z.B. Eigenwert, Prüfung, Klausur …" autofocus>
+  <button class="btn primary">Suchen</button>
+</form>
+
+{% if query %}
+  {% if not results %}
+  <div class="empty">
+    {{ icon('search', 40) }}
+    <h3>Nichts gefunden</h3>
+    <p class="muted">Kein Transkript enthält „{{ query }}“.{% if transcribed < count %} {{ count - transcribed }} Aufnahmen sind noch nicht transkribiert.{% endif %}</p>
+  </div>
+  {% else %}
+  <p class="muted small result-count">{{ total }} Treffer in {{ results|length }} Aufnahme{{ '' if results|length == 1 else 'n' }}</p>
+  <div class="results">
+    {% for res in results %}
+    {% set r = res.recording %}
+    <section class="result" style="--hue: {{ r.hue }}">
+      <a class="result-head" href="{{ url_for('watch', name=r.name) }}">
+        <span class="series-thumb">{% if r.thumb_version %}<img src="{{ url_for('thumbnail', name=r.name, v=r.thumb_version) }}" alt="" loading="lazy">{% endif %}</span>
+        <span><b>{{ r.title }}</b><span class="muted small">{{ weekday_names[r.date.strftime('%A').lower()] }}, {{ r.date.strftime('%d.%m.%Y') }} · {{ res.matches|length + res.more }} Treffer</span></span>
+      </a>
+      <ol class="hits">
+        {% for m in res.matches %}
+        <li><a href="{{ url_for('watch', name=r.name, t=m.start) }}"><span class="ts">{{ m.time }}</span><span>{{ m.text }}</span></a></li>
+        {% endfor %}
+        {% if res.more %}<li class="muted small">… und {{ res.more }} weitere</li>{% endif %}
+      </ol>
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% elif transcribed == 0 %}
+  <div class="empty">
+    {{ icon('list', 40) }}
+    <h3>Noch keine Transkripte</h3>
+    <p class="muted">Mit Scriberr werden Aufnahmen automatisch transkribiert. Danach kannst du hier nach Stichwörtern suchen und direkt an die Stelle springen.</p>
+  </div>
+{% endif %}
+{% endblock %}
