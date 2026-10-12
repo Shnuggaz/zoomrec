@@ -7,6 +7,9 @@ cleanup () {
 }
 trap cleanup SIGINT SIGTERM
 
+# Group-writable files by default, so other members of PGID can manage recordings
+umask "${UMASK:-0002}"
+
 VNC_IP=$(hostname -i)
 DISPLAY_NUM="${DISPLAY#:}"
 

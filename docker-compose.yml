@@ -7,6 +7,8 @@ services:
         ZOOM_VERSION: ${ZOOM_VERSION:-latest}
     image: zoomrec:local
     container_name: zoomrec
+    # Files are created with this group (e.g. a shared media group), see PGID in .env
+    user: "1000:${PGID:-1000}"
     # Stable host name, Zoom stores it with its profile
     hostname: zoomrec
     restart: unless-stopped
@@ -14,6 +16,7 @@ services:
     shm_size: 1gb
     environment:
       TZ: ${TZ:-Europe/Vienna}
+      UMASK: ${UMASK:-0002}
       VNC_PW: ${VNC_PW:-zoomrec}
       # Screen size of the virtual desktop, this is also the recording resolution
       VNC_RESOLUTION: ${VNC_RESOLUTION:-1920x1080}
@@ -52,9 +55,11 @@ services:
       dockerfile: webui/Dockerfile
     image: zoomrec-webui:local
     container_name: zoomrec-webui
+    user: "1000:${PGID:-1000}"
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Europe/Vienna}
+      UMASK: ${UMASK:-0002}
       # Required, the web interface does not start without a password
       WEB_PASSWORD: ${WEB_PASSWORD:?Set WEB_PASSWORD in .env}
       RECORDINGS_DIR: /data/recordings

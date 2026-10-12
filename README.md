@@ -120,6 +120,12 @@ SCRIBERR_DEVICE=cpu           # cuda when Scriberr runs the CUDA image
 SCRIBERR_LANGUAGE=de
 ```
 
+### File group
+
+Both containers run as uid 1000. Set `PGID` in `.env` (e.g. `PGID=1500` for a shared media group) to
+create all files with that group; files are group-writable (`UMASK=0002`). Existing files:
+`sudo chown -R 1000:1500 recordings config zoom-profile && sudo chmod -R g+rwX recordings config zoom-profile`.
+
 ### Recordings on a network share
 
 Mount the share on the host (NFS or SMB via `/etc/fstab`), make it writable for uid 1000 and set

@@ -22,4 +22,4 @@ COPY webui/static /app/static
 # Same uid as the recorder so both can read and write the shared volumes
 USER 1000
 EXPOSE 8080
-CMD ["python3", "-m", "waitress", "--listen=0.0.0.0:8080", "--threads=8", "wsgi:app"]
+CMD ["sh", "-c", "umask ${UMASK:-0002} && exec python3 -m waitress --listen=0.0.0.0:8080 --threads=8 wsgi:app"]
