@@ -161,12 +161,11 @@ RUN adduser zoomrec pulse-access
 COPY res/home/ ${HOME}/
 COPY res/entrypoint.sh res/xfce.sh ${START_DIR}/
 COPY zoomrec.py zoomrec_core.py ${HOME}/
-COPY res/img ${HOME}/img
 
 # Set permissions
 RUN chmod a+x ${START_DIR}/*.sh && \
     chmod -R a+rw ${START_DIR} && \
-    mkdir -p ${HOME}/recordings ${HOME}/audio && \
+    mkdir -p ${HOME}/recordings ${HOME}/audio ${HOME}/.zoom ${HOME}/config && \
     chown -R zoomrec:zoomrec ${HOME} && \
     find ${HOME}/ -name '*.sh' -exec chmod a+x {} + && \
     find ${HOME}/ -name '*.desktop' -exec chmod a+x {} +
