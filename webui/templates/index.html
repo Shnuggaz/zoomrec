@@ -1,68 +1,106 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card status" id="status" data-state="{{ status.state }}">
-  <div class="status-main">
-    <span class="dot"></span>
-    <div>
-      <h2 id="status-title">Status wird geladen…</h2>
-      <p id="status-detail" class="muted"></p>
+<section class="hero" id="status" data-state="{{ status.state }}">
+  <div class="hero-main">
+    <div class="state-pill" id="state-pill"><span class="dot"></span><span id="state-label">Status wird geladen…</span></div>
+    <h1 id="status-title">&nbsp;</h1>
+    <p id="status-detail" class="muted">&nbsp;</p>
+    <div class="progress" id="rec-progress" hidden>
+      <div class="progress-bar"><span id="rec-progress-fill"></span></div>
+      <div class="progress-labels"><span id="rec-progress-start"></span><span id="rec-progress-end"></span></div>
+    </div>
+    <div class="hero-facts">
+      <div class="fact">
+        <span class="fact-icon">{{ icon('calendar') }}</span>
+        <div><span class="fact-label">Nächste Aufnahme</span><span class="fact-value" id="next-meeting">–</span>
+          <span class="fact-sub" id="next-countdown"></span></div>
+      </div>
+      <div class="fact">
+        <span class="fact-icon">{{ icon('disk') }}</span>
+        <div><span class="fact-label">Freier Speicher</span>
+          <span class="fact-value" id="disk-free">{{ status.disk_free }}</span>
+          <span class="meter"><span id="disk-meter" style="width: {{ 100 - status.disk_free_percent }}%"></span></span></div>
+      </div>
+    </div>
+    <div class="alert" id="last-error-box" hidden>
+      {{ icon('alert') }}
+      <div><b>Letzter Fehler</b> <span class="muted" id="last-error-time"></span><br><span id="last-error"></span>
+        <a id="last-error-shot" href="{{ url_for('error_screenshot') }}" target="_blank" hidden>{{ icon('image', 14) }} Screenshot ansehen</a></div>
     </div>
   </div>
-  <img id="preview" class="preview" alt="Live-Vorschau des Recorders" hidden>
-  <dl class="facts">
-    <div><dt>Nächste Aufnahme</dt><dd id="next-meeting">–</dd></div>
-    <div><dt>Freier Speicher</dt><dd id="disk-free">{{ status.disk_free }}</dd></div>
-    <div id="last-error-box" hidden><dt>Letzter Fehler</dt><dd><span id="last-error" class="error"></span>
-      <a id="last-error-shot" href="{{ url_for('error_screenshot') }}" target="_blank" hidden>Screenshot ansehen</a></dd></div>
-  </dl>
+  <div class="hero-preview">
+    <div class="screen" id="screen">
+      <img id="preview" alt="Live-Vorschau des Recorders" hidden>
+      <span class="live-tag" id="live-tag" hidden><span></span>LIVE</span>
+      <div class="screen-idle" id="screen-idle">{{ icon('film', 40) }}<span>Keine Aufnahme aktiv</span></div>
+    </div>
+  </div>
 </section>
 
-<section class="card">
-  <div class="section-head">
-    <h2>Aufnahmen</h2>
-    {% if courses|length > 1 %}
-    <select id="course-filter" aria-label="Nach Vorlesung filtern">
-      <option value="">Alle Vorlesungen</option>
-      {% for course in courses %}<option>{{ course }}</option>{% endfor %}
-    </select>
+<section class="library-section">
+  <div class="library-head">
+    <div>
+      <h2>Aufnahmen</h2>
+      <p class="muted small">{{ stats.count }} Aufnahme{{ '' if stats.count == 1 else 'n' }} · {{ stats.total }} · {{ stats.size }}</p>
+    </div>
+    {% if recordings %}
+    <label class="search">{{ icon('search', 16) }}<input type="search" id="search" placeholder="Suchen…" aria-label="Aufnahmen durchsuchen"></label>
     {% endif %}
   </div>
+  {% if courses|length > 1 %}
+  <div class="chips" id="course-chips">
+    <button class="chip active" data-course="">Alle <span>{{ stats.count }}</span></button>
+    {% for course, count in courses %}<button class="chip" data-course="{{ course }}">{{ course }} <span>{{ count }}</span></button>{% endfor %}
+  </div>
+  {% endif %}
+
   {% if not recordings %}
-    <p class="muted">Noch keine Aufnahmen.</p>
+  <div class="empty">
+    {{ icon('film', 40) }}
+    <h3>Noch keine Aufnahmen</h3>
+    <p class="muted">Trag deine Vorlesungen im <a href="{{ url_for('schedule_view') }}">Stundenplan</a> ein, dann erscheinen die Aufnahmen hier.</p>
+  </div>
   {% else %}
-  <ul class="library">
+  <div class="grid" id="library">
     {% for r in recordings %}
-    <li data-course="{{ r.title }}">
-      <div class="rec-info">
-        {% if r.playable %}
-          <a class="rec-title" href="{{ url_for('watch', name=r.name) }}">{{ r.title }}</a>
+    <article class="card-rec{{ ' recording' if r.in_progress }}" data-course="{{ r.title }}" data-name="{{ r.name }}"
+             data-search="{{ (r.title ~ ' ' ~ r.date.strftime('%d.%m.%Y') ~ ' ' ~ weekday_names[r.date.strftime('%A').lower()])|lower }}">
+      <a class="thumb" {% if r.playable %}href="{{ url_for('watch', name=r.name) }}"{% endif %}
+         style="--hue: {{ r.hue }}" aria-label="{{ r.title }} ansehen">
+        {% if r.in_progress %}
+          <img src="{{ url_for('preview') }}" alt="" class="live-thumb">
+          <span class="rec-tag"><span></span>Wird aufgenommen</span>
+        {% elif r.thumb_version %}
+          <img src="{{ url_for('thumbnail', name=r.name, v=r.thumb_version) }}" alt="" loading="lazy">
         {% else %}
-          <span class="rec-title">{{ r.title }}</span>
+          <span class="initials">{{ (r.title.split()|map('first')|join(''))[:3]|upper }}</span>
         {% endif %}
-        <span class="muted">
-          {{ weekday_names[r.date.strftime('%A').lower()] }}, {{ r.date.strftime('%d.%m.%Y %H:%M') }}
-          {% if r.in_progress %}<span class="badge rec">wird aufgenommen</span>{% else %}· {{ r.duration }} · {{ r.size }}{% endif %}
-          {% if r.name.endswith('.mkv') and not r.in_progress %}<span class="badge">MKV (nicht konvertiert)</span>{% endif %}
-        </span>
-      </div>
-      <div class="rec-actions">
-        {% if r.playable %}<a class="button" href="{{ url_for('watch', name=r.name) }}">Ansehen</a>{% endif %}
+        {% if r.playable %}<span class="play-overlay">{{ icon('play', 28) }}</span>{% endif %}
+        {% if not r.in_progress and r.duration != '–' %}<span class="duration">{{ r.duration }}</span>{% endif %}
+        <span class="new-tag" hidden>Neu</span>
+        <span class="watched"><span></span></span>
+      </a>
+      <div class="card-body">
+        <div class="card-text">
+          <h3 title="{{ r.title }}">{{ r.title }}</h3>
+          <p class="muted small">{{ weekday_names[r.date.strftime('%A').lower()][:2] }}., {{ r.date.strftime('%d.%m.%Y · %H:%M') }}</p>
+          {% if r.name.endswith('.mkv') and not r.in_progress %}<p class="small warn">MKV, nicht konvertiert</p>{% endif %}
+        </div>
         {% if not r.in_progress %}
-        <a class="button" href="{{ url_for('download', name=r.name) }}">Download</a>
-        <form method="post" action="{{ url_for('delete_recording', name=r.name) }}" class="inline"
-              onsubmit="return confirm('„{{ r.title }}“ vom {{ r.date.strftime('%d.%m.%Y') }} wirklich löschen?')">
-          <input type="hidden" name="csrf" value="{{ csrf_token }}">
-          <button class="danger">Löschen</button>
-        </form>
+        <div class="card-actions">
+          <a class="icon-btn" href="{{ url_for('download', name=r.name) }}" title="Herunterladen ({{ r.size }})">{{ icon('download') }}</a>
+          <form method="post" action="{{ url_for('delete_recording', name=r.name) }}" class="inline"
+                onsubmit="return confirm('„{{ r.title }}“ vom {{ r.date.strftime('%d.%m.%Y') }} wirklich löschen?')">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button class="icon-btn danger" title="Löschen">{{ icon('trash') }}</button>
+          </form>
+        </div>
         {% endif %}
       </div>
-    </li>
+    </article>
     {% endfor %}
-  </ul>
+  </div>
+  <p class="muted empty-filter" id="no-results" hidden>Keine passenden Aufnahmen.</p>
   {% endif %}
 </section>
-{% endblock %}
-{% block scripts %}
-<script>window.ZOOMREC = {statusUrl: "{{ url_for('api_status') }}", previewUrl: "{{ url_for('preview') }}", errorShotUrl: "{{ url_for('error_screenshot') }}"};</script>
-<script src="{{ url_for('static', filename='app.js') }}"></script>
 {% endblock %}

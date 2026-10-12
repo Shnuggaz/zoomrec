@@ -1,39 +1,53 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Vorlesung bearbeiten' if index is not none else 'Neue Vorlesung' }} – zoomrec{% endblock %}
 {% block content %}
-<section class="card narrow">
-  <h2>{{ 'Vorlesung bearbeiten' if index is not none else 'Neue Vorlesung' }}</h2>
-  {% if error %}<p class="flash error">Ungültige Eingabe: {{ error }}</p>{% endif %}
-  <form method="post" action="{{ url_for('schedule_save') }}" class="form">
+<a class="back" href="{{ url_for('schedule_view') }}">{{ icon('left', 16) }} Stundenplan</a>
+<section class="panel form-panel">
+  <h1>{{ 'Vorlesung bearbeiten' if index is not none else 'Neue Vorlesung' }}</h1>
+  {% if error %}<div class="alert">{{ icon('alert') }}<div>Ungültige Eingabe: {{ error }}</div></div>{% endif %}
+  <form method="post" action="{{ url_for('schedule_save') }}" class="form" id="meeting-form">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <input type="hidden" name="index" value="{{ '' if index is none else index }}">
+
     <label for="description">Name</label>
-    <input id="description" name="description" value="{{ values.description }}" required maxlength="80"
-           placeholder="z.B. VO Mathe 1">
+    <input id="description" name="description" value="{{ values.description.replace('_', ' ') }}" required maxlength="80"
+           placeholder="z.B. VO Darstellende Geometrie" autofocus>
+
+    <label>Wochentag</label>
+    <div class="segmented wide">
+      {% for day in weekdays %}
+      <label class="seg"><input type="radio" name="weekday" value="{{ day }}" {{ 'checked' if values.weekday == day }}><span>{{ weekday_names[day][:2] }}</span></label>
+      {% endfor %}
+    </div>
+
     <div class="row">
-      <div>
-        <label for="weekday">Wochentag</label>
-        <select id="weekday" name="weekday">
-          {% for day in weekdays %}<option value="{{ day }}" {{ 'selected' if values.weekday == day }}>{{ weekday_names[day] }}</option>{% endfor %}
-        </select>
-      </div>
       <div>
         <label for="time">Beginn</label>
         <input id="time" name="time" type="time" value="{{ values.time }}" required>
       </div>
       <div>
-        <label for="duration">Dauer (Minuten)</label>
+        <label for="duration">Dauer in Minuten</label>
         <input id="duration" name="duration" type="number" min="1" max="1440" value="{{ values.duration }}" required>
+        <div class="presets">{% for d in [45, 90, 120, 180] %}<button type="button" class="chip small" data-duration="{{ d }}">{{ d }}</button>{% endfor %}</div>
       </div>
     </div>
+    <p class="muted small" id="time-summary"></p>
+
     <label for="id">Zoom-Link oder Meeting-ID</label>
-    <input id="id" name="id" value="{{ values.id }}" required placeholder="https://tuwien.zoom.us/j/…?pwd=…">
-    <label for="password">Kenncode <span class="muted">(nur nötig, wenn der Link kein pwd= enthält)</span></label>
+    <div class="input-icon">{{ icon('link', 16) }}<input id="id" name="id" value="{{ values.id }}" required placeholder="https://tuwien.zoom.us/j/…?pwd=…"></div>
+
+    <label for="password">Kenncode <span class="muted">– nur nötig, wenn der Link kein „pwd=“ enthält</span></label>
     <input id="password" name="password" value="{{ values.password }}" autocomplete="off">
-    <label class="check"><input type="checkbox" name="record" value="true" {{ 'checked' if values.record == 'true' }}> Aufnehmen</label>
+
+    <label class="toggle-row">
+      <input type="checkbox" name="record" value="true" {{ 'checked' if values.record == 'true' }}>
+      <span class="switch-ui"><span></span></span>
+      <span>Automatisch aufnehmen</span>
+    </label>
+
     <div class="form-actions">
-      <button class="primary">Speichern</button>
-      <a class="button" href="{{ url_for('schedule_view') }}">Abbrechen</a>
+      <button class="btn primary">{{ icon('check', 16) }}<span>Speichern</span></button>
+      <a class="btn" href="{{ url_for('schedule_view') }}">Abbrechen</a>
     </div>
   </form>
 </section>

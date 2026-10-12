@@ -1,45 +1,75 @@
 {% extends "base.html" %}
 {% block title %}Stundenplan – zoomrec{% endblock %}
 {% block content %}
-<section class="card">
-  <div class="section-head">
-    <h2>Stundenplan</h2>
-    <a class="button primary" href="{{ url_for('schedule_new') }}">+ Vorlesung</a>
+<div class="page-head">
+  <div>
+    <h1>Stundenplan</h1>
+    <p class="muted small">Der Recorder tritt jeweils eine Minute vor Beginn bei. Änderungen gelten sofort.</p>
   </div>
-  {% for line, message in errors %}
-    <p class="flash error">Zeile {{ line }} in meetings.csv ist ungültig und wird ignoriert: {{ message }}.
-      Beim nächsten Speichern hier wird sie entfernt.</p>
-  {% endfor %}
-  {% if not rows %}
-    <p class="muted">Noch keine Vorlesungen eingetragen.</p>
-  {% else %}
-  <table class="schedule">
-    <thead><tr><th>Vorlesung</th><th>Termin</th><th>Dauer</th><th>Nächste Aufnahme</th><th></th></tr></thead>
-    <tbody>
-    {% for row in rows %}
-      {% set m = row.meeting %}
-      <tr class="{{ '' if m.record else 'disabled' }}">
-        <td data-label="Vorlesung">{{ m.description.replace('_', ' ') }}</td>
-        <td data-label="Termin">{{ weekday_names[m.weekday] }}, {{ m.time }}</td>
-        <td data-label="Dauer">{{ m.duration }} min</td>
-        <td data-label="Nächste">{% if row.next %}{{ row.next.strftime('%d.%m. %H:%M') }}{% else %}<span class="muted">deaktiviert</span>{% endif %}</td>
-        <td class="actions">
-          <a class="button" href="{{ url_for('schedule_edit', index=row.index) }}">Bearbeiten</a>
-          <form method="post" action="{{ url_for('schedule_toggle', index=row.index) }}" class="inline">
-            <input type="hidden" name="csrf" value="{{ csrf_token }}">
-            <button>{{ 'Deaktivieren' if m.record else 'Aktivieren' }}</button>
-          </form>
-          <form method="post" action="{{ url_for('schedule_delete', index=row.index) }}" class="inline"
-                onsubmit="return confirm('„{{ m.description }}“ wirklich aus dem Stundenplan löschen?')">
-            <input type="hidden" name="csrf" value="{{ csrf_token }}">
-            <button class="danger">Löschen</button>
-          </form>
-        </td>
-      </tr>
+  <a class="btn primary" href="{{ url_for('schedule_new') }}">{{ icon('plus', 16) }}<span>Vorlesung</span></a>
+</div>
+
+{% for line, message in errors %}
+  <div class="alert">{{ icon('alert') }}<div>Zeile {{ line }} in meetings.csv ist ungültig und wird ignoriert ({{ message }}). Beim nächsten Speichern hier wird sie entfernt.</div></div>
+{% endfor %}
+
+{% if not rows %}
+<div class="empty">
+  {{ icon('calendar', 40) }}
+  <h3>Noch keine Vorlesungen</h3>
+  <p class="muted">Lege deine erste Vorlesung an. Den Zoom-Link findest du in TISS bzw. TUWEL.</p>
+  <a class="btn primary" href="{{ url_for('schedule_new') }}">{{ icon('plus', 16) }}<span>Vorlesung anlegen</span></a>
+</div>
+{% else %}
+<section class="week" style="--days: {{ week.days|length }}; --hours: {{ week.span_hours }}">
+  <div class="week-head">
+    <span></span>
+    {% for day in week.days %}<span class="{{ 'today' if day == today }}">{{ weekday_names[day][:2] }}<em>{{ weekday_names[day][2:] }}</em></span>{% endfor %}
+  </div>
+  <div class="week-body">
+    <div class="week-hours">
+      {% for h in week.hours[:-1] %}<span style="top: {{ loop.index0 * 100 / week.span_hours }}%">{{ '%02d' % h }}:00</span>{% endfor %}
+    </div>
+    {% for day in week.days %}
+    <div class="week-day{{ ' today' if day == today }}">
+      {% for b in week.blocks if b.day == loop.index0 %}
+      <a class="wk-block{{ ' off' if not b.meeting.record }}{{ ' short' if b.meeting.duration < 75 }}" href="{{ url_for('schedule_edit', index=b.index) }}"
+         style="top: {{ b.top }}%; height: {{ b.height }}%; --hue: {{ b.hue }}"
+         title="{{ b.meeting.description.replace('_', ' ') }}, {{ b.meeting.time }}–{{ b.end }}">
+        <b>{{ b.meeting.description.replace('_', ' ') }}</b>
+        <span>{{ b.meeting.time }}–{{ b.end }}</span>
+      </a>
+      {% endfor %}
+    </div>
     {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-  <p class="muted small">Der Recorder übernimmt Änderungen nach wenigen Sekunden und tritt jeweils eine Minute vor Beginn bei.</p>
+  </div>
 </section>
+
+<section class="lectures">
+  {% for row in rows %}
+  {% set m = row.meeting %}
+  <div class="lecture{{ ' off' if not m.record }}" style="--hue: {{ row.hue }}">
+    <span class="lecture-color"></span>
+    <div class="lecture-text">
+      <b>{{ m.description.replace('_', ' ') }}</b>
+      <span class="muted small">{{ weekday_names[m.weekday] }}, {{ m.time }} · {{ m.duration }} min
+        · {% if row.next %}nächste Aufnahme {{ row.next.strftime('%d.%m. um %H:%M') }}{% else %}pausiert{% endif %}</span>
+    </div>
+    <div class="lecture-actions">
+      <form method="post" action="{{ url_for('schedule_toggle', index=row.index) }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="switch{{ ' on' if m.record }}" role="switch" aria-checked="{{ 'true' if m.record else 'false' }}"
+                title="{{ 'Aufnahme pausieren' if m.record else 'Aufnahme aktivieren' }}"><span></span></button>
+      </form>
+      <a class="icon-btn" href="{{ url_for('schedule_edit', index=row.index) }}" title="Bearbeiten">{{ icon('edit') }}</a>
+      <form method="post" action="{{ url_for('schedule_delete', index=row.index) }}" class="inline"
+            onsubmit="return confirm('„{{ m.description.replace('_', ' ') }}“ wirklich aus dem Stundenplan löschen?')">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="icon-btn danger" title="Löschen">{{ icon('trash') }}</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
 {% endblock %}

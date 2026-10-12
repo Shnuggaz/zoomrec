@@ -81,12 +81,15 @@ ZOOM_VERSION=7.2.1.5760 docker compose up -d --build
 
 A second container (`zoomrec-webui`, Flask, no build step) at `http://127.0.0.1:8080`:
 
-- Status: whether a recording is running, which lecture, since when, live preview of the recorder
-  screen (updated every 15 s), next scheduled recording, free disk space, last error
-- Recordings: list with date, duration and size, filter by lecture, play in the browser with seeking,
-  playback speed and resume position, download, delete
-- Schedule: add, edit, enable/disable and delete lectures with the same validation as the recorder.
-  The file is written atomically and picked up by the recorder within seconds.
+- Status: whether a recording is running, which lecture, progress until the planned end, live preview
+  of the recorder screen (updated every 15 s), countdown to the next recording, free disk space, last
+  error with screenshot. A small REC indicator is shown in the top bar on every page.
+- Recordings: grid with thumbnails (created by the recorder with FFmpeg, also for older recordings),
+  duration, watched progress and "new" badges, filter by lecture and search. Player with seeking,
+  playback speed, keyboard shortcuts, resume position and the other units of the same lecture.
+  Download and delete.
+- Schedule: week view and list; add, edit, pause and delete lectures with the same validation as the
+  recorder. The file is written atomically and picked up by the recorder within seconds.
 
 Login with `WEB_PASSWORD` from `.env` (required, the container does not start without it). It is only
 published on `127.0.0.1` by default. From another machine use an SSH tunnel

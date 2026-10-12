@@ -1,17 +1,56 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title }} – zoomrec{% endblock %}
 {% block content %}
-<section class="card">
-  <p><a href="{{ url_for('index') }}">← Alle Aufnahmen</a></p>
-  <h1>{{ item.title }}</h1>
-  <p class="muted">{{ weekday_names[item.date.strftime('%A').lower()] }}, {{ item.date.strftime('%d.%m.%Y %H:%M') }} · {{ item.duration }} · {{ item.size }}</p>
-  <video class="player" controls preload="metadata" src="{{ url_for('stream', name=item.name) }}"></video>
-  <p class="player-help muted">Tastatur: Leertaste Pause, ← → 10 Sekunden, Geschwindigkeit:
-    {% for rate in [1, 1.25, 1.5, 1.75, 2] %}<button class="link speed" data-rate="{{ rate }}">{{ rate }}×</button>{% endfor %}
-  </p>
-  <p><a class="button" href="{{ url_for('download', name=item.name) }}">Download</a></p>
-</section>
-{% endblock %}
-{% block scripts %}
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<a class="back" href="{{ url_for('index') }}">{{ icon('left', 16) }} Alle Aufnahmen</a>
+<div class="watch">
+  <div class="watch-main">
+    <div class="player-wrap">
+      <video class="player" id="player" controls preload="metadata" playsinline
+             src="{{ url_for('stream', name=item.name) }}"
+             {% if item.thumb_version %}poster="{{ url_for('thumbnail', name=item.name, v=item.thumb_version) }}"{% endif %}
+             data-name="{{ item.name }}"></video>
+    </div>
+    <div class="watch-info">
+      <div>
+        <p class="eyebrow">Einheit {{ position }} von {{ series|length }}</p>
+        <h1>{{ item.title }}</h1>
+        <p class="muted">{{ weekday_names[item.date.strftime('%A').lower()] }}, {{ item.date.strftime('%d.%m.%Y, %H:%M') }} · {{ item.duration }} · {{ item.size }}</p>
+      </div>
+      <div class="watch-actions">
+        {% if previous %}<a class="btn" href="{{ url_for('watch', name=previous.name) }}" title="Vorherige Einheit">{{ icon('left', 16) }}<span>Vorherige</span></a>{% endif %}
+        {% if following %}<a class="btn" href="{{ url_for('watch', name=following.name) }}" title="Nächste Einheit"><span>Nächste</span>{{ icon('right', 16) }}</a>{% endif %}
+        <a class="btn" href="{{ url_for('download', name=item.name) }}">{{ icon('download', 16) }}<span>Download</span></a>
+      </div>
+    </div>
+    <div class="speed-bar">
+      <span class="muted small">Geschwindigkeit</span>
+      <div class="segmented" id="speed">
+        {% for rate in ['1', '1.25', '1.5', '1.75', '2'] %}<button data-rate="{{ rate }}" class="{{ 'active' if rate == '1' }}">{{ rate|replace('.', ',') }}×</button>{% endfor %}
+      </div>
+      <span class="muted small keys"><kbd>Leertaste</kbd> Pause · <kbd>←</kbd><kbd>→</kbd> 10 s · <kbd>F</kbd> Vollbild</span>
+    </div>
+  </div>
+  {% if series|length > 1 %}
+  <aside class="series">
+    <h2>{{ item.title }}</h2>
+    <p class="muted small">{{ series|length }} Einheiten</p>
+    <ol>
+      {% for r in series %}
+      <li class="{{ 'current' if r.name == item.name }}">
+        <a href="{{ url_for('watch', name=r.name) }}" data-name="{{ r.name }}">
+          <span class="series-thumb" style="--hue: {{ r.hue }}">
+            {% if r.thumb_version %}<img src="{{ url_for('thumbnail', name=r.name, v=r.thumb_version) }}" alt="" loading="lazy">{% endif %}
+            <span class="watched"><span></span></span>
+          </span>
+          <span class="series-text">
+            <b>Einheit {{ loop.index }}</b>
+            <span class="muted small">{{ r.date.strftime('%d.%m.%Y') }} · {{ r.duration }}</span>
+          </span>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+  </aside>
+  {% endif %}
+</div>
 {% endblock %}

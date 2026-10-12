@@ -1,6 +1,7 @@
 """zoomrec web interface: recorder status, recordings library and schedule editor."""
 import dataclasses
 import hmac
+import math
 import os
 import re
 import secrets
@@ -15,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME, WEEKDAYS,
                           MeetingError,
                           mp4_duration, next_occurrence, parse_meeting, read_meetings_file,
-                          read_status, write_meetings_file)
+                          read_status, thumbnail_path, write_meetings_file)
 
 # Recorder writes its status about every 10 seconds
 STATUS_STALE_SECONDS = 60
@@ -65,6 +66,41 @@ def format_duration(seconds):
     return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
 
 
+def format_total(seconds):
+    """Total length of all recordings, e.g. '45 min' or '12,5 Stunden'."""
+    if seconds < 3600:
+        return f"{round(seconds / 60)} min"
+    return f"{math.floor(seconds / 360) / 10:g} Stunden".replace('.', ',')
+
+
+def course_hues(titles):
+    """Well separated color hues for lectures (golden angle), stable for a given set of names."""
+    return {title: round(210 + i * 137.508) % 360 for i, title in enumerate(sorted(set(titles)))}
+
+
+def week_view(meetings, hues):
+    """Blocks for a Monday-to-Friday (+ weekend if used) calendar of the schedule."""
+    days = list(WEEKDAYS[:5]) + [d for d in WEEKDAYS[5:] if any(m.weekday == d for m in meetings)]
+    starts = [int(m.time[:2]) * 60 + int(m.time[3:]) for m in meetings]
+    ends = [s + m.duration for s, m in zip(starts, meetings)]
+    first = min([8 * 60] + starts) // 60
+    last = min(24, max([18 * 60] + ends) // 60 + (1 if max([18 * 60] + ends) % 60 else 0))
+    span = (last - first) * 60
+    blocks = []
+    for index, (m, start, end) in enumerate(zip(meetings, starts, ends)):
+        if m.weekday not in days:
+            continue
+        end = min(end, last * 60)
+        blocks.append({
+            'index': index, 'meeting': m, 'day': days.index(m.weekday),
+            'top': (start - first * 60) * 100 / span, 'height': max(4.0, (end - start) * 100 / span),
+            'end': f"{(start + m.duration) // 60 % 24:02d}:{(start + m.duration) % 60:02d}",
+            'hue': hues.get(m.description.replace('_', ' '), 210),
+        })
+    return {'days': days, 'hours': list(range(first, last + 1)), 'blocks': blocks,
+            'first': first, 'span_hours': last - first}
+
+
 def create_app(recordings_dir=None, meetings_csv=None, password=None, password_hash=None):
     recordings_dir = recordings_dir or os.getenv('RECORDINGS_DIR', '/data/recordings')
     meetings_csv = meetings_csv or os.getenv('MEETINGS_CSV', '/data/config/meetings.csv')
@@ -98,6 +134,7 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
             status['stale'] = True
         usage = shutil.disk_usage(recordings_dir)
         status['disk_free'] = format_size(usage.free)
+        status['disk_total'] = format_size(usage.total)
         status['disk_free_percent'] = round(usage.free * 100 / usage.total)
         status['preview'] = (status.get('state') in ('joining', 'recording')
                              and not status['stale']
@@ -119,6 +156,10 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
         if status.get('state') in ('recording', 'finishing'):
             return status.get('file')
         return None
+
+    def all_hues(recording_titles=()):
+        meetings, _ = load_schedule()
+        return course_hues([m.description.replace('_', ' ') for m in meetings] + list(recording_titles))
 
     def list_recordings():
         active = active_file()
@@ -142,11 +183,17 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
                 if key not in duration_cache:
                     duration_cache[key] = mp4_duration(path)
                 duration = duration_cache[key]
+            thumb = thumbnail_path(status_dir, name)
             items.append({
                 'name': name, 'title': title, 'date': date, 'size': format_size(stat.st_size),
-                'duration': format_duration(duration), 'in_progress': in_progress,
+                'size_bytes': stat.st_size, 'duration': format_duration(duration),
+                'duration_seconds': duration, 'in_progress': in_progress,
                 'playable': name.endswith('.mp4') and not in_progress,
+                'thumb_version': int(os.path.getmtime(thumb)) if os.path.exists(thumb) else None,
             })
+        hues = all_hues(i['title'] for i in items)
+        for item in items:
+            item['hue'] = hues[item['title']]
         items.sort(key=lambda i: i['date'], reverse=True)
         return items
 
@@ -203,9 +250,16 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
     @app.route('/')
     def index():
         recordings = list_recordings()
-        courses = sorted({r['title'] for r in recordings})
+        courses = {}
+        for r in recordings:
+            courses[r['title']] = courses.get(r['title'], 0) + 1
+        stats = {
+            'count': len(recordings),
+            'size': format_size(sum(r['size_bytes'] for r in recordings)),
+            'total': format_total(sum(r['duration_seconds'] or 0 for r in recordings)),
+        }
         return render_template('index.html', status=recorder_status(), recordings=recordings,
-                               courses=courses)
+                               courses=sorted(courses.items()), stats=stats)
 
     @app.route('/api/status')
     def api_status():
@@ -227,13 +281,31 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
     def error_screenshot():
         return status_image(ERROR_SCREENSHOT_NAME)
 
+    @app.route('/thumbs/<name>')
+    def thumbnail(name):
+        if not RECORDING_NAME_RE.match(name):
+            abort(404)
+        path = thumbnail_path(status_dir, name)
+        if not os.path.isfile(path):
+            abort(404)
+        # URLs carry ?v=<mtime>, so the image can be cached
+        return send_file(path, mimetype='image/jpeg', max_age=86400)
+
     @app.route('/watch/<name>')
     def watch(name):
         recording_path(name)
-        item = next((r for r in list_recordings() if r['name'] == name), None)
+        recordings = list_recordings()
+        item = next((r for r in recordings if r['name'] == name), None)
         if item is None or not item['playable']:
             abort(404)
-        return render_template('watch.html', item=item)
+        # Other recordings of the same lecture, oldest first
+        series = sorted((r for r in recordings if r['title'] == item['title'] and r['playable']),
+                        key=lambda r: r['date'])
+        position = next(i for i, r in enumerate(series) if r['name'] == name)
+        previous = series[position - 1] if position > 0 else None
+        following = series[position + 1] if position + 1 < len(series) else None
+        return render_template('watch.html', item=item, series=series, position=position + 1,
+                               previous=previous, following=following)
 
     @app.route('/recordings/<name>')
     def stream(name):
@@ -251,7 +323,11 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
             flash('Diese Aufnahme läuft gerade und kann nicht gelöscht werden.', 'error')
         else:
             os.remove(path)
-            flash(f'„{name}“ wurde gelöscht.', 'ok')
+            try:
+                os.remove(thumbnail_path(status_dir, name))
+            except OSError:
+                pass
+            flash('Aufnahme gelöscht.', 'ok')
         return redirect(url_for('index'))
 
     # --- schedule ------------------------------------------------------------
@@ -260,9 +336,15 @@ def create_app(recordings_dir=None, meetings_csv=None, password=None, password_h
     def schedule_view():
         meetings, errors = load_schedule()
         now = datetime.now()
-        rows = [{'index': i, 'meeting': m, 'next': next_occurrence(m, now) if m.record else None}
+        recording_titles = [m.group(2).replace('_', ' ') for m in map(FILE_DATE_RE.match, os.listdir(recordings_dir)) if m]
+        hues = all_hues(recording_titles)
+        rows = [{'index': i, 'meeting': m, 'next': next_occurrence(m, now) if m.record else None,
+                 'hue': hues[m.description.replace('_', ' ')]}
                 for i, m in enumerate(meetings)]
-        return render_template('schedule.html', rows=rows, errors=errors)
+        rows.sort(key=lambda r: (WEEKDAYS.index(r['meeting'].weekday), r['meeting'].time))
+        today = WEEKDAYS[now.weekday()]
+        return render_template('schedule.html', rows=rows, errors=errors, week=week_view(meetings, hues),
+                               today=today)
 
     def meeting_form(index, values, error=None):
         return render_template('edit.html', index=index, values=values, error=error,

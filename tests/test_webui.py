@@ -78,7 +78,7 @@ class WebUiTest(unittest.TestCase):
         html = self.client.get('/').get_data(as_text=True)
         self.assertIn('VO Mathe', html)
         self.assertIn('1:30:00', html)
-        self.assertIn('Montag, 12.10.2026 09:54', html)
+        self.assertIn('Mo., 12.10.2026 · 09:54', html)
 
     def test_status_files_are_hidden_from_library(self):
         write_status(os.path.join(self.rec, '.zoomrec'), {'state': 'idle'})
@@ -114,7 +114,7 @@ class WebUiTest(unittest.TestCase):
         write_status(os.path.join(self.rec, '.zoomrec'), {'state': 'recording', 'file': self.video})
         self.login()
         html = self.client.get('/').get_data(as_text=True)
-        self.assertIn('wird aufgenommen', html)
+        self.assertIn('Wird aufgenommen', html)
         self.client.post(f'/recordings/{self.video}/delete', data={'csrf': self.csrf})
         self.assertTrue(os.path.exists(os.path.join(self.rec, self.video)))
 
@@ -173,7 +173,7 @@ class WebUiTest(unittest.TestCase):
         self.client.post('/schedule/0/toggle', data={'csrf': self.csrf})
         self.assertFalse(read_meetings_file(self.csv)[0][0].record)
         html = self.client.get('/schedule').get_data(as_text=True)
-        self.assertIn('deaktiviert', html)
+        self.assertIn('pausiert', html)
         self.client.post('/schedule/0/delete', data={'csrf': self.csrf})
         self.assertEqual(read_meetings_file(self.csv)[0], [])
 
@@ -189,6 +189,49 @@ class WebUiTest(unittest.TestCase):
         self.login()
         html = self.client.get(f'/watch/{self.video}').get_data(as_text=True)
         self.assertIn(f'src="/recordings/{self.video}"', html)
+
+    def test_thumbnail(self):
+        self.login()
+        self.assertEqual(self.client.get(f'/thumbs/{self.video}').status_code, 404)
+        thumbs = os.path.join(self.rec, '.zoomrec', 'thumbs')
+        os.makedirs(thumbs)
+        with open(os.path.join(thumbs, self.video + '.jpg'), 'wb') as f:
+            f.write(b'\xff\xd8jpeg')
+        html = self.client.get('/').get_data(as_text=True)
+        self.assertIn(f'/thumbs/{self.video}?v=', html)
+        response = self.client.get(f'/thumbs/{self.video}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'image/jpeg')
+        self.assertEqual(self.client.get('/thumbs/..%2F..%2Fconfig%2Fmeetings.csv').status_code, 404)
+        # Deleting the recording removes its thumbnail
+        self.client.post(f'/recordings/{self.video}/delete', data={'csrf': self.csrf})
+        self.assertFalse(os.path.exists(os.path.join(thumbs, self.video + '.jpg')))
+
+    def test_watch_series_navigation(self):
+        for day in ('05', '19'):
+            with open(os.path.join(self.rec, f'2026-10-{day}_09-54-00-VO_Mathe.mp4'), 'wb') as f:
+                f.write(fake_mp4(60))
+        self.login()
+        html = self.client.get(f'/watch/{self.video}').get_data(as_text=True)
+        self.assertIn('Einheit 2 von 3', html)
+        self.assertIn('/watch/2026-10-05_09-54-00-VO_Mathe.mp4', html)
+        self.assertIn('/watch/2026-10-19_09-54-00-VO_Mathe.mp4', html)
+
+    def test_week_view(self):
+        from app import week_view
+        from zoomrec_core import parse_meeting
+        base = {'id': '1', 'password': '', 'record': 'true'}
+        meetings = [parse_meeting({**base, 'weekday': 'monday', 'time': '09:00', 'duration': '120', 'description': 'A'}),
+                    parse_meeting({**base, 'weekday': 'saturday', 'time': '19:30', 'duration': '90', 'description': 'B'})]
+        week = week_view(meetings, {})
+        self.assertEqual(week['days'][-1], 'saturday')
+        self.assertEqual(len(week['days']), 6)
+        self.assertEqual(week['hours'][0], 8)
+        self.assertEqual(week['hours'][-1], 21)
+        first = week['blocks'][0]
+        self.assertEqual(first['day'], 0)
+        self.assertAlmostEqual(first['top'], 60 * 100 / (13 * 60))
+        self.assertEqual(first['end'], '11:00')
 
     def test_missing_password_refuses_start(self):
         from app import create_app
