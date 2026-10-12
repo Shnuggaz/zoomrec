@@ -1,7 +1,9 @@
 import os
+import struct
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -9,7 +11,9 @@ from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # n
                           build_join_url, build_record_command, build_remux_command,
                           find_meeting_window, load_meetings, parse_meeting,
                           parse_wmctrl, sanitize_description, set_ini_option,
-                          apply_zoom_options)
+                          apply_zoom_options, mp4_duration, next_occurrence,
+                          read_meetings_file, read_status, write_meetings_file,
+                          write_status)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -230,13 +234,95 @@ class ApplyZoomOptionsTest(unittest.TestCase):
         f.close()
         self.addCleanup(os.remove, f.name)
         apply_zoom_options(f.name)
-        text = open(f.name).read()
+        with open(f.name) as conf:
+            text = conf.read()
         self.assertIn('hideCrashReport=true', text)
         self.assertIn('deviceID=AA', text)
 
     def test_missing_file_is_logged(self):
         with self.assertLogs(level='ERROR'):
             apply_zoom_options('/nonexistent/zoomus.conf')
+
+
+class MeetingsFileTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, 'meetings.csv')
+
+    def test_round_trip(self):
+        meetings = [
+            parse_meeting(row()),
+            parse_meeting(row(id='https://tuwien.zoom.us/j/1?pwd=a;b', password='x;y"z', record='false')),
+        ]
+        write_meetings_file(self.path, meetings)
+        loaded, errors = read_meetings_file(self.path)
+        self.assertEqual(loaded, meetings)
+        self.assertEqual(errors, [])
+        self.assertEqual(os.listdir(self.dir.name), ['meetings.csv'])
+
+    def test_errors_are_returned(self):
+        with open(self.path, 'w') as f:
+            f.write('weekday;time;duration;id;password;description;record\n'
+                    'monday;09:00;60;1;;A;true\nfunday;09:00;60;1;;B;true\n')
+        meetings, errors = read_meetings_file(self.path)
+        self.assertEqual(len(meetings), 1)
+        self.assertEqual(errors[0][0], 3)
+        self.assertIn('funday', errors[0][1])
+
+
+class NextOccurrenceTest(unittest.TestCase):
+    def meeting(self, weekday, time):
+        return parse_meeting(row(weekday=weekday, time=time))
+
+    def test_later_today(self):
+        now = datetime(2026, 10, 12, 8, 0)  # Monday
+        self.assertEqual(next_occurrence(self.meeting('monday', '09:55'), now), datetime(2026, 10, 12, 9, 55))
+
+    def test_earlier_today_is_next_week(self):
+        now = datetime(2026, 10, 12, 10, 0)
+        self.assertEqual(next_occurrence(self.meeting('monday', '09:55'), now), datetime(2026, 10, 19, 9, 55))
+
+    def test_other_weekday(self):
+        now = datetime(2026, 10, 12, 10, 0)
+        self.assertEqual(next_occurrence(self.meeting('sunday', '18:00'), now), datetime(2026, 10, 18, 18, 0))
+
+
+class StatusTest(unittest.TestCase):
+    def test_write_and_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            status_dir = os.path.join(d, '.zoomrec')
+            self.assertIsNone(read_status(status_dir))
+            write_status(status_dir, {'state': 'recording', 'meeting': 'VO'})
+            self.assertEqual(read_status(status_dir), {'state': 'recording', 'meeting': 'VO'})
+            self.assertEqual(os.listdir(status_dir), ['status.json'])
+
+
+def box(kind, body):
+    return struct.pack('>I4s', 8 + len(body), kind) + body
+
+
+class Mp4DurationTest(unittest.TestCase):
+    def write(self, data):
+        f = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        f.write(data)
+        f.close()
+        self.addCleanup(os.remove, f.name)
+        return f.name
+
+    def test_version_0(self):
+        mvhd = box(b'mvhd', bytes([0, 0, 0, 0]) + struct.pack('>IIII', 0, 0, 1000, 5_400_000) + bytes(80))
+        data = box(b'ftyp', b'isom' + bytes(4)) + box(b'moov', mvhd) + box(b'mdat', bytes(100))
+        self.assertEqual(mp4_duration(self.write(data)), 5400.0)
+
+    def test_version_1_after_mdat(self):
+        mvhd = box(b'mvhd', bytes([1, 0, 0, 0]) + struct.pack('>QQIQ', 0, 0, 90000, 90000 * 61) + bytes(80))
+        data = box(b'ftyp', b'isom' + bytes(4)) + box(b'mdat', bytes(1000)) + box(b'moov', mvhd)
+        self.assertEqual(mp4_duration(self.write(data)), 61.0)
+
+    def test_invalid_file(self):
+        self.assertIsNone(mp4_duration(self.write(b'not an mp4 file at all')))
+        self.assertIsNone(mp4_duration('/nonexistent.mp4'))
 
 
 if __name__ == '__main__':

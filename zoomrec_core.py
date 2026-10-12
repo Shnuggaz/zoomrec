@@ -4,10 +4,13 @@ and FFmpeg commands.
 Kept free of pyautogui/X11 imports so it can be unit tested without a display.
 """
 import csv
+import json
 import logging
 import os
 import re
+import struct
 from dataclasses import dataclass
+from datetime import timedelta
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 CSV_DELIMITER = ';'
@@ -84,9 +87,13 @@ def parse_meeting(row):
                    record=record == 'true')
 
 
-def load_meetings(path):
-    """Read the meetings CSV. Invalid rows are logged and skipped."""
+CSV_COLUMNS = ('weekday', 'time', 'duration', 'id', 'password', 'description', 'record')
+
+
+def read_meetings_file(path):
+    """Read the meetings CSV. Returns (meetings, errors) with errors as (line number, message)."""
     meetings = []
+    errors = []
     with open(path, mode='r', newline='', encoding='utf-8') as csv_file:
         reader = csv.DictReader(csv_file, delimiter=CSV_DELIMITER)
         for row in reader:
@@ -95,8 +102,105 @@ def load_meetings(path):
             try:
                 meetings.append(parse_meeting(row))
             except MeetingError as ex:
-                logging.error("meetings.csv line %d skipped: %s", reader.line_num, ex)
+                errors.append((reader.line_num, str(ex)))
+    return meetings, errors
+
+
+def load_meetings(path):
+    """Read the meetings CSV. Invalid rows are logged and skipped."""
+    meetings, errors = read_meetings_file(path)
+    for line_no, message in errors:
+        logging.error("meetings.csv line %d skipped: %s", line_no, message)
     return meetings
+
+
+def write_meetings_file(path, meetings):
+    """Write meetings atomically (temporary file in the same directory, then rename)."""
+    tmp = f"{path}.tmp-{os.getpid()}"
+    with open(tmp, mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f, delimiter=CSV_DELIMITER, lineterminator='\n')
+        writer.writerow(CSV_COLUMNS)
+        for m in meetings:
+            writer.writerow([m.weekday, m.time, m.duration, m.id, m.password, m.description,
+                             'true' if m.record else 'false'])
+    os.replace(tmp, path)
+
+
+def next_occurrence(meeting, now):
+    """Next start datetime of a weekly meeting at or after now (naive local time)."""
+    hour, minute = map(int, meeting.time.split(':'))
+    days_ahead = (WEEKDAYS.index(meeting.weekday) - now.weekday()) % 7
+    start = (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if start < now:
+        start += timedelta(days=7)
+    return start
+
+
+# Status shared between recorder and web interface, stored next to the recordings
+STATUS_DIR_NAME = '.zoomrec'
+STATUS_FILE_NAME = 'status.json'
+PREVIEW_FILE_NAME = 'preview.jpg'
+
+
+def write_status(status_dir, status):
+    """Write the recorder status atomically as JSON."""
+    os.makedirs(status_dir, exist_ok=True)
+    path = os.path.join(status_dir, STATUS_FILE_NAME)
+    tmp = f"{path}.tmp-{os.getpid()}"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(status, f)
+    os.replace(tmp, path)
+
+
+def read_status(status_dir):
+    try:
+        with open(os.path.join(status_dir, STATUS_FILE_NAME), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def mp4_duration(path):
+    """Duration in seconds from the mvhd box of an MP4 file, None if it cannot be read."""
+    def boxes(f, start, end):
+        pos = start
+        while pos + 8 <= end:
+            f.seek(pos)
+            header = f.read(8)
+            if len(header) < 8:
+                return
+            size, kind = struct.unpack('>I4s', header)
+            header_size = 8
+            if size == 1:
+                size = struct.unpack('>Q', f.read(8))[0]
+                header_size = 16
+            elif size == 0:
+                size = end - pos
+            if size < header_size:
+                return
+            yield kind, pos + header_size, pos + size
+            pos += size
+
+    try:
+        with open(path, 'rb') as f:
+            file_end = os.fstat(f.fileno()).st_size
+            for kind, body, box_end in boxes(f, 0, file_end):
+                if kind != b'moov':
+                    continue
+                for inner_kind, inner_body, _ in boxes(f, body, box_end):
+                    if inner_kind != b'mvhd':
+                        continue
+                    f.seek(inner_body)
+                    version = f.read(1)[0]
+                    f.read(3)  # flags
+                    if version == 1:
+                        _, _, timescale, duration = struct.unpack('>QQIQ', f.read(28))
+                    else:
+                        _, _, timescale, duration = struct.unpack('>IIII', f.read(16))
+                    return duration / timescale if timescale else None
+    except (OSError, struct.error, IndexError):
+        return None
+    return None
 
 
 @dataclass(frozen=True)
