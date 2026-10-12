@@ -101,7 +101,7 @@ def load_meetings(path):
 
 @dataclass(frozen=True)
 class RecordingSettings:
-    fps: int = 30
+    fps: int = 15
     crf: int = 24
     preset: str = 'veryfast'
     audio_bitrate: str = '192k'

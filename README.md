@@ -62,9 +62,10 @@ ZOOM_VERSION=7.2.1.5760 docker compose up -d --build
   `ZOOM_DEB_URL` overrides the URL completely. The installed version is printed at the end of the Zoom build step.
 - `config/meetings.csv` is re-read automatically when it changes, no restart needed.
   Invalid rows (unknown weekday, time not `HH:MM`, duration not a number, ...) are skipped and logged.
-- Recordings are H.264/AAC `.mp4` files (1920x1080, 30 fps, CRF 24, AAC 192k at 48 kHz by default).
-  Slides with little motion need a few MB per 10 minutes, a full-screen video up to about 3 MB per minute.
-  Encoding needs about 0.65 CPU cores. Use `RECORD_FPS=15` or `VNC_RESOLUTION=1280x720` to save CPU.
+- Recordings are H.264/AAC `.mp4` files (1920x1080, 15 fps, CRF 24, AAC 192k at 48 kHz by default).
+  Zoom itself only renders about 5 new frames per second of webcam video in the container (no GPU),
+  so a higher `RECORD_FPS` mostly costs CPU. Slides need a few MB per 10 minutes, a full-screen video
+  up to about 2 MB per minute. Encoding needs about 0.35 CPU cores.
   They are written as `.mkv` while recording, so a crash does not lose the file, and converted to `.mp4` at the end.
   Tune with `RECORD_FPS`, `RECORD_CRF` and `RECORD_THREADS`.
 - Playing a sound into the meeting after joining is off by default (`PLAY_AUDIO=false`).

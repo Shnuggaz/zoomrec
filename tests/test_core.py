@@ -105,7 +105,7 @@ class FfmpegCommandTest(unittest.TestCase):
         self.assertEqual(cmd[-1], '/rec/a.mkv')
         joined = ' '.join(cmd)
         for part in ['-ac 2 -i speaker.monitor', '-f x11grab',
-                     '-framerate 30 -video_size 1024x576 -i :1',
+                     '-framerate 15 -video_size 1024x576 -i :1',
                      '-c:v libx264 -preset veryfast -crf 24', '-pix_fmt yuv420p',
                      '-c:a aac -b:a 192k', '-f pulse -sample_rate 48000', '-threads 2']:
             self.assertIn(part, joined)

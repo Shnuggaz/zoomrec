@@ -26,7 +26,7 @@ services:
       MEETINGS_CSV: /home/zoomrec/config/meetings.csv
       PLAY_AUDIO: ${PLAY_AUDIO:-false}
       # Recording quality: lower CRF = better quality and bigger files
-      RECORD_FPS: ${RECORD_FPS:-30}
+      RECORD_FPS: ${RECORD_FPS:-15}
       RECORD_CRF: ${RECORD_CRF:-24}
       RECORD_THREADS: ${RECORD_THREADS:-2}
     ports:
