@@ -1,4 +1,5 @@
-"""Display-independent helpers of zoomrec: schedule parsing and FFmpeg commands.
+"""Display-independent helpers of zoomrec: schedule parsing, join URLs, window lists
+and FFmpeg commands.
 
 Kept free of pyautogui/X11 imports so it can be unit tested without a display.
 """
@@ -7,6 +8,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 CSV_DELIMITER = ';'
 
@@ -143,3 +145,57 @@ def build_remux_command(source, target):
         'ffmpeg', '-nostats', '-loglevel', 'error', '-y',
         '-i', source, '-map', '0', '-c', 'copy', '-movflags', '+faststart', target,
     ]
+
+
+def build_join_url(meet_id, password='', name=''):
+    """Build a zoommtg:// URL that joins a meeting directly, as guest with the given name.
+
+    meet_id is either a numeric meeting ID or a https join link like
+    https://tuwien.zoom.us/j/123456789?pwd=abc. Returns None for links without a
+    meeting number (e.g. personal /my/ links); those are passed to Zoom unchanged.
+    """
+    if meet_id.startswith(('https://', 'http://')):
+        parsed = urlparse(meet_id)
+        match = re.search(r'/(?:j|w|s|wc/join)/(\d+)', parsed.path)
+        if not match:
+            return None
+        host = parsed.netloc
+        confno = match.group(1)
+        password = parse_qs(parsed.query).get('pwd', [password])[0]
+    else:
+        host = 'zoom.us'
+        confno = meet_id
+
+    params = {'action': 'join', 'confno': confno}
+    if password:
+        params['pwd'] = password
+    if name:
+        params['uname'] = name
+    return f"zoommtg://{host}/join?{urlencode(params, quote_via=quote)}"
+
+
+@dataclass(frozen=True)
+class Window:
+    id: str
+    wm_class: str
+    title: str
+
+
+def parse_wmctrl(output):
+    """Parse the output of `wmctrl -lx` into Window objects."""
+    windows = []
+    for line in output.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 4:
+            continue
+        title = parts[4] if len(parts) == 5 else ''
+        windows.append(Window(id=parts[0], wm_class=parts[2], title=title))
+    return windows
+
+
+def find_meeting_window(windows):
+    """The Zoom meeting window is titled "Meeting" (Zoom 7)."""
+    for window in windows:
+        if window.wm_class == 'zoom.zoom' and window.title == 'Meeting':
+            return window
+    return None

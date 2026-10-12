@@ -5,9 +5,10 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from zoomrec_core import (Meeting, MeetingError, RecordingSettings,  # noqa: E402
-                          build_record_command, build_remux_command,
-                          load_meetings, parse_meeting, sanitize_description)
+from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # noqa: E402
+                          build_join_url, build_record_command, build_remux_command,
+                          find_meeting_window, load_meetings, parse_meeting,
+                          parse_wmctrl, sanitize_description)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -133,6 +134,64 @@ class FfmpegCommandTest(unittest.TestCase):
         self.assertIn('-i a.mkv', joined)
         self.assertIn('-c copy', joined)
         self.assertIn('-movflags +faststart', joined)
+
+
+class JoinUrlTest(unittest.TestCase):
+    def test_https_link(self):
+        self.assertEqual(
+            build_join_url('https://tuwien.zoom.us/j/2384973897?pwd=aBc.1', '', 'Lukas P'),
+            'zoommtg://tuwien.zoom.us/join?action=join&confno=2384973897&pwd=aBc.1&uname=Lukas%20P')
+
+    def test_password_in_link_wins(self):
+        url = build_join_url('https://zoom.us/j/123?pwd=fromlink', 'fromcsv', 'x')
+        self.assertIn('pwd=fromlink', url)
+
+    def test_https_link_without_pwd_uses_csv_password(self):
+        url = build_join_url('https://zoom.us/j/123', 'fromcsv', 'x')
+        self.assertIn('pwd=fromcsv', url)
+
+    def test_meeting_id(self):
+        self.assertEqual(build_join_url('123456789', '741699', 'zoomrec'),
+                         'zoommtg://zoom.us/join?action=join&confno=123456789&pwd=741699&uname=zoomrec')
+
+    def test_no_password_no_name(self):
+        self.assertEqual(build_join_url('123', '', ''), 'zoommtg://zoom.us/join?action=join&confno=123')
+
+    def test_special_characters_are_encoded(self):
+        url = build_join_url('123', 'a&b=c', 'Ä "x"')
+        self.assertIn('pwd=a%26b%3Dc', url)
+        self.assertIn('uname=%C3%84%20%22x%22', url)
+
+    def test_personal_link_returns_none(self):
+        self.assertIsNone(build_join_url('https://tuwien.zoom.us/my/someone', '', 'x'))
+
+
+WMCTRL_OUTPUT = """0x01000003 -1 xfce4-panel.Xfce4-panel  9c13012e0b51 xfce4-panel
+0x00e00028 -1 xfdesktop.Xfdesktop   9c13012e0b51 Desktop
+0x02600003  0 xfce4-terminal.Xfce4-terminal  9c13012e0b51 zoomrec
+0x01e0000d  0 zoom.zoom             9c13012e0b51 Zoom Workplace
+0x01e00060  0 zoom.zoom             9c13012e0b51 Meeting
+0x01e0006f  0 zoom.zoom             9c13012e0b51 Zoom Workplace
+0x01e00070  0 zoom.zoom             9c13012e0b51
+"""
+
+
+class WindowTest(unittest.TestCase):
+    def test_parse_wmctrl(self):
+        windows = parse_wmctrl(WMCTRL_OUTPUT)
+        self.assertEqual(len(windows), 7)
+        self.assertEqual(windows[3], Window('0x01e0000d', 'zoom.zoom', 'Zoom Workplace'))
+        self.assertEqual(windows[6].title, '')
+
+    def test_find_meeting_window(self):
+        self.assertEqual(find_meeting_window(parse_wmctrl(WMCTRL_OUTPUT)).id, '0x01e00060')
+
+    def test_no_meeting_window(self):
+        output = "\n".join(l for l in WMCTRL_OUTPUT.splitlines() if not l.endswith('Meeting'))
+        self.assertIsNone(find_meeting_window(parse_wmctrl(output)))
+
+    def test_other_app_named_meeting_is_ignored(self):
+        self.assertIsNone(find_meeting_window([Window('0x1', 'xfce4-terminal.Xfce4-terminal', 'Meeting')]))
 
 
 if __name__ == '__main__':
