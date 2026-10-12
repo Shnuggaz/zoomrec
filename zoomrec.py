@@ -13,9 +13,10 @@ import pyautogui
 import requests
 import schedule
 
-from zoomrec_core import (RecordingSettings, apply_zoom_options, build_join_url,
-                          build_record_command, build_remux_command, find_meeting_window,
-                          load_meetings, parse_wmctrl)
+from zoomrec_core import (PREVIEW_FILE_NAME, STATUS_DIR_NAME, RecordingSettings,
+                          apply_zoom_options, build_join_url, build_record_command,
+                          build_remux_command, find_meeting_window, load_meetings,
+                          parse_wmctrl, write_status)
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
@@ -35,6 +36,8 @@ CSV_PATH = os.getenv("MEETINGS_CSV", os.path.join(BASE_PATH, "meetings.csv"))
 REC_PATH = os.path.join(BASE_PATH, "recordings")
 AUDIO_PATH = os.path.join(BASE_PATH, "audio")
 DEBUG_PATH = os.path.join(REC_PATH, "screenshots")
+# Status and live preview for the web interface
+STATUS_DIR = os.path.join(REC_PATH, STATUS_DIR_NAME)
 ZOOM_CONF = os.path.join(BASE_PATH, ".config", "zoomus.conf")
 PROFILE_ZOOM_CONF = os.path.join(BASE_PATH, ".zoom", "zoomus.conf")
 
@@ -58,6 +61,59 @@ END_GRACE_SECONDS = 300
 WINDOW_GONE_SECONDS = 15
 # Interval of debug screenshots during a meeting
 DEBUG_SCREENSHOT_INTERVAL = 300
+# Interval of the live preview image for the web interface during a meeting
+PREVIEW_INTERVAL = 15
+PREVIEW_WIDTH = 640
+
+
+STATUS = {'state': 'idle'}
+
+
+def next_meeting_info():
+    jobs = [job for job in schedule.get_jobs() if job.next_run is not None]
+    if not jobs:
+        return {'next_meeting': None, 'next_meeting_at': None}
+    job = min(jobs, key=lambda j: j.next_run)
+    # Jobs start one minute before the lecture
+    return {'next_meeting': job.job_func.keywords.get('description'),
+            'next_meeting_at': (job.next_run + timedelta(minutes=1)).isoformat(timespec='seconds')}
+
+
+def update_status(**fields):
+    """Update the status file read by the web interface. Never raises."""
+    STATUS.update(fields)
+    STATUS.update(next_meeting_info())
+    STATUS['updated'] = datetime.now().isoformat(timespec='seconds')
+    try:
+        write_status(STATUS_DIR, STATUS)
+    except OSError as ex:
+        logging.error("Could not write status: " + str(ex))
+
+
+def report_error(message):
+    logging.error(message)
+    update_status(last_error=message, last_error_at=datetime.now().isoformat(timespec='seconds'))
+
+
+def save_preview():
+    """Small screenshot of the virtual screen for the web interface."""
+    try:
+        image = pyautogui.screenshot()
+        height = round(image.height * PREVIEW_WIDTH / image.width)
+        image = image.resize((PREVIEW_WIDTH, height)).convert('RGB')
+        os.makedirs(STATUS_DIR, exist_ok=True)
+        path = os.path.join(STATUS_DIR, PREVIEW_FILE_NAME)
+        image.save(path + ".tmp", format='JPEG', quality=70)
+        os.replace(path + ".tmp", path)
+    except Exception as ex:
+        logging.error("Could not save preview: " + str(ex))
+
+
+def remove_preview():
+    try:
+        os.remove(os.path.join(STATUS_DIR, PREVIEW_FILE_NAME))
+    except OSError:
+        pass
 
 
 def debug_screenshot(description, label):
@@ -176,11 +232,12 @@ def remux_to_mp4(mkv_path):
     if result.returncode == 0 and os.path.getsize(mp4_path) > 0:
         os.remove(mkv_path)
         logging.info("Saved recording " + mp4_path)
-    else:
-        logging.error("Remux to mp4 failed, keeping " + mkv_path + ": " +
-                      result.stderr.decode(errors='replace')[-500:])
-        if os.path.exists(mp4_path):
-            os.remove(mp4_path)
+        return mp4_path
+    logging.error("Remux to mp4 failed, keeping " + mkv_path + ": " +
+                  result.stderr.decode(errors='replace')[-500:])
+    if os.path.exists(mp4_path):
+        os.remove(mp4_path)
+    return mkv_path
 
 
 def save_zoom_config():
@@ -226,8 +283,26 @@ def stop_zoom(zoom):
 
 
 def join(meet_id, meet_pw, duration, description):
+    """Join and record a meeting. Errors are reported instead of stopping the scheduler."""
+    try:
+        record_meeting(meet_id, meet_pw, duration, description)
+    except Exception as ex:
+        logging.exception("Recording of %s failed" % description)
+        report_error("Recording of '{}' failed: {}".format(description, ex))
+        send_telegram_message("Recording of '{}' failed: {}".format(description, ex))
+        exit_process_by_name("zoom")
+        exit_process_by_name("ffmpeg")
+    finally:
+        remove_preview()
+        update_status(state='idle', meeting=None, since=None, planned_end=None, file=None)
+
+
+def record_meeting(meet_id, meet_pw, duration, description):
     logging.info("Join meeting: " + description)
     end_date = datetime.now() + timedelta(seconds=duration + END_GRACE_SECONDS)
+    update_status(state='joining', meeting=description,
+                  since=datetime.now().isoformat(timespec='seconds'),
+                  planned_end=end_date.isoformat(timespec='seconds'), file=None)
 
     ffmpeg_debug = None
     if DEBUG:
@@ -240,12 +315,18 @@ def join(meet_id, meet_pw, duration, description):
     # Wait for the meeting window (we may sit in the waiting room until the host admits us)
     logging.info("Waiting for meeting window..")
     meeting = None
+    last_preview = 0
     while meeting is None and datetime.now() < end_date:
         time.sleep(2)
         meeting = find_meeting_window(list_windows())
+        if time.time() - last_preview >= PREVIEW_INTERVAL:
+            save_preview()
+            update_status()
+            last_preview = time.time()
 
     if meeting is None:
-        logging.error("Meeting window did not appear until the planned end.")
+        report_error("Could not join '{}': meeting window did not appear until the planned end "
+                     "(waiting room not opened?)".format(description))
         debug_screenshot(description, "join_error")
         if ffmpeg_debug is not None:
             stop_recording(ffmpeg_debug)
@@ -262,6 +343,9 @@ def join(meet_id, meet_pw, duration, description):
         stop_recording(ffmpeg_debug)
 
     ffmpeg, filename = start_recording(description)
+    update_status(state='recording', recording_since=datetime.now().isoformat(timespec='seconds'),
+                  file=os.path.basename(filename))
+    save_preview()
     send_telegram_message("Joined Meeting '{}' and started recording.".format(description))
 
     if PLAY_AUDIO:
@@ -286,15 +370,22 @@ def join(meet_id, meet_pw, duration, description):
         if time.time() - last_screenshot >= DEBUG_SCREENSHOT_INTERVAL:
             debug_screenshot(description, "meeting")
             last_screenshot = time.time()
+        if time.time() - last_preview >= PREVIEW_INTERVAL:
+            save_preview()
+            last_preview = time.time()
+        update_status()
         print(f"Meeting ends at the latest in {end_date - datetime.now()}", end="\r", flush=True)
 
     if not ended_by_host:
         logging.info("Planned end of meeting reached.")
     logging.info("Meeting ends at %s" % datetime.now())
 
+    update_status(state='finishing')
     stop_recording(ffmpeg)
     stop_zoom(zoom)
-    remux_to_mp4(filename)
+    final_path = remux_to_mp4(filename)
+    update_status(last_recording=os.path.basename(final_path),
+                  last_recording_at=datetime.now().isoformat(timespec='seconds'))
 
     send_telegram_message("Meeting '{}' ended.".format(description))
 
@@ -372,13 +463,19 @@ def main():
         os.makedirs(DEBUG_PATH, exist_ok=True)
 
     setup_schedule()
+    remove_preview()
+    update_status(state='idle', meeting=None)
     join_ongoing_meeting()
 
     last_csv_mtime = csv_mtime()
     last_config_save = time.time()
+    last_heartbeat = 0
     while True:
         schedule.run_pending()
         time.sleep(1)
+        if time.time() - last_heartbeat >= 10:
+            update_status()
+            last_heartbeat = time.time()
         # Reload the schedule when meetings.csv changes, no restart needed
         current_mtime = csv_mtime()
         if current_mtime != last_csv_mtime:
