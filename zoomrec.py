@@ -6,6 +6,7 @@ import random
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -14,6 +15,8 @@ import pyautogui
 import requests
 import schedule
 
+from transcription import (ScriberrClient, TranscriptionSettings, TranscriptionWorker,
+                           build_audio_extract_command)
 from zoomrec_core import (ERROR_SCREENSHOT_NAME, PREVIEW_FILE_NAME, STATUS_DIR_NAME,
                           RecordingSettings, build_thumbnail_command, mp4_duration,
                           thumbnail_path, thumbnail_time,
@@ -57,6 +60,7 @@ TIME_FORMAT = "%Y-%m-%d_%H-%M-%S"
 PLAY_AUDIO = os.getenv('PLAY_AUDIO', 'false').lower() == 'true'
 
 RECORDING_SETTINGS = RecordingSettings.from_env()
+TRANSCRIPTION_SETTINGS = TranscriptionSettings.from_env()
 
 # Extra time after the planned end before recording is stopped
 END_GRACE_SECONDS = 300
@@ -308,6 +312,30 @@ def create_missing_thumbnails(limit=5):
         if not os.path.exists(thumbnail_path(STATUS_DIR, name)):
             create_thumbnail(os.path.join(REC_PATH, name))
             limit -= 1
+
+
+def extract_audio(video_path, target):
+    result = subprocess.run(build_audio_extract_command(video_path, target),
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        logging.error("Audio extraction failed: " + result.stderr.decode(errors='replace')[-300:])
+    return result.returncode == 0 and os.path.exists(target)
+
+
+def transcription_loop():
+    """Background thread: send recordings to Scriberr and fetch transcripts, paused while recording."""
+    client = ScriberrClient(TRANSCRIPTION_SETTINGS.url, TRANSCRIPTION_SETTINGS.api_key)
+    worker = TranscriptionWorker(REC_PATH, STATUS_DIR, client, TRANSCRIPTION_SETTINGS, extract_audio)
+    logging.info("Transcription with Scriberr enabled (%s, model %s)" % (
+        TRANSCRIPTION_SETTINGS.url, TRANSCRIPTION_SETTINGS.model))
+    while True:
+        time.sleep(5)
+        if STATUS.get('state') != 'idle':
+            continue
+        try:
+            worker.step()
+        except Exception:
+            logging.exception("Transcription step failed")
 
 
 def remux_to_mp4(mkv_path):
@@ -580,7 +608,9 @@ def main():
 
     setup_schedule()
     remove_preview()
-    update_status(state='idle', meeting=None)
+    update_status(state='idle', meeting=None, transcription=TRANSCRIPTION_SETTINGS.enabled)
+    if TRANSCRIPTION_SETTINGS.enabled:
+        threading.Thread(target=transcription_loop, daemon=True).start()
     join_ongoing_meeting()
 
     last_csv_mtime = csv_mtime()

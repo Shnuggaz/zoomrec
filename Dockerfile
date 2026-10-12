@@ -165,7 +165,7 @@ RUN mkdir -p /var/lib/dbus && \
 # Add home resources, startup scripts and python script with resources
 COPY res/home/ ${HOME}/
 COPY res/entrypoint.sh res/xfce.sh ${START_DIR}/
-COPY zoomrec.py zoomrec_core.py ${HOME}/
+COPY zoomrec.py zoomrec_core.py transcription.py ${HOME}/
 
 # Set permissions
 RUN chmod a+x ${START_DIR}/*.sh && \
