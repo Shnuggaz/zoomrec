@@ -97,6 +97,34 @@ published on `127.0.0.1` by default. From another machine use an SSH tunnel
 reach it in the LAN. Do not expose it to the internet; use a VPN such as Tailscale or WireGuard for
 access from outside.
 
+### Transcription with Scriberr (optional)
+
+With a self-hosted [Scriberr](https://github.com/rishikanthc/Scriberr) (tested against the v1.2.0 API) the
+recorder transcribes recordings automatically:
+
+- After each recording, and for older recordings without transcript, it extracts a small mono MP3
+  (about 30 MB per 90 minutes) and submits it to `POST /api/v1/transcription/submit` with the API key
+  (`X-API-Key`). At most two jobs run at the same time; nothing is sent while a meeting is recorded.
+- Finished transcripts are stored as JSON and WebVTT in `recordings/.zoomrec/transcripts/`.
+- The web interface searches all transcripts (`/search`) and links each hit to the exact time in the
+  player, shows the transcript next to the player (click to jump, follows playback) and offers
+  subtitles (`C`). Failed jobs can be retried from the player page.
+
+Configuration in `.env`:
+
+```
+SCRIBERR_URL=https://transcribe.example.com
+SCRIBERR_API_KEY=...          # created in Scriberr's settings
+SCRIBERR_MODEL=small          # medium / large-v3 for better quality, needs a GPU in Scriberr
+SCRIBERR_DEVICE=cpu           # cuda when Scriberr runs the CUDA image
+SCRIBERR_LANGUAGE=de
+```
+
+### Recordings on a network share
+
+Mount the share on the host (NFS or SMB via `/etc/fstab`), make it writable for uid 1000 and set
+`RECORDINGS_PATH=/mnt/...` in `.env`. Both containers then use it instead of `./recordings`.
+
 The recorder writes its state to `recordings/.zoomrec/status.json` and the preview to
 `recordings/.zoomrec/preview.jpg`; the web interface only reads them, so no Docker socket is needed.
 

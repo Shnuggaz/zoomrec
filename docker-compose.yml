@@ -29,11 +29,18 @@ services:
       RECORD_FPS: ${RECORD_FPS:-15}
       RECORD_CRF: ${RECORD_CRF:-24}
       RECORD_THREADS: ${RECORD_THREADS:-2}
+      # Optional: automatic transcription with a self-hosted Scriberr (https://github.com/rishikanthc/Scriberr)
+      SCRIBERR_URL: ${SCRIBERR_URL:-}
+      SCRIBERR_API_KEY: ${SCRIBERR_API_KEY:-}
+      SCRIBERR_MODEL: ${SCRIBERR_MODEL:-small}
+      SCRIBERR_LANGUAGE: ${SCRIBERR_LANGUAGE:-de}
+      SCRIBERR_DEVICE: ${SCRIBERR_DEVICE:-cpu}
     ports:
       # Only reachable from the VM itself, use an SSH tunnel for remote access
       - "127.0.0.1:5901:5901"
     volumes:
-      - ./recordings:/home/zoomrec/recordings
+      # RECORDINGS_PATH can point to a network share mounted on the host
+      - ${RECORDINGS_PATH:-./recordings}:/home/zoomrec/recordings
       - ./config:/home/zoomrec/config:ro
       - ./audio:/home/zoomrec/audio:ro
       # Zoom settings (e.g. skip join preview, remembered name), survive image updates
@@ -56,6 +63,6 @@ services:
       # Default: only reachable on the VM itself. WEB_BIND=0.0.0.0 makes it reachable in the LAN.
       - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
     volumes:
-      - ./recordings:/data/recordings
+      - ${RECORDINGS_PATH:-./recordings}:/data/recordings
       - ./config:/data/config
     mem_limit: 256m
