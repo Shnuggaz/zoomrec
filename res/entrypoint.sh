@@ -33,6 +33,9 @@ if [[ -w "$PROFILE_DIR" ]]; then
     fi
 fi
 
+# Enforce Zoom settings (also for Zoom started by hand via VNC or docker exec)
+(cd "$HOME" && python3 -c "from zoomrec_core import apply_zoom_options; apply_zoom_options('$HOME/.config/zoomus.conf')") || true
+
 # Change vnc password
 mkdir -p "$HOME/.vnc"
 PASSWD_PATH="$HOME/.vnc/passwd"

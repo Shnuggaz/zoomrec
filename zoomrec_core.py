@@ -227,3 +227,23 @@ def set_ini_option(text, section, key, value):
     else:
         lines.insert(insert_at, f'{key}={value}')
     return '\n'.join(lines) + '\n'
+
+
+# Zoom settings enforced before Zoom starts
+ZOOM_OPTIONS = {
+    # Zoom is stopped with a signal after each meeting, which it reports as crash on the next start
+    'hideCrashReport': 'true',
+}
+
+
+def apply_zoom_options(conf_path):
+    """Write ZOOM_OPTIONS into Zoom's zoomus.conf."""
+    try:
+        with open(conf_path) as f:
+            text = f.read()
+        for key, value in ZOOM_OPTIONS.items():
+            text = set_ini_option(text, 'General', key, value)
+        with open(conf_path, 'w') as f:
+            f.write(text)
+    except OSError as ex:
+        logging.error("Could not update Zoom configuration: " + str(ex))

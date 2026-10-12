@@ -13,9 +13,9 @@ import pyautogui
 import requests
 import schedule
 
-from zoomrec_core import (RecordingSettings, build_join_url, build_record_command,
-                          build_remux_command, find_meeting_window, load_meetings,
-                          parse_wmctrl, set_ini_option)
+from zoomrec_core import (RecordingSettings, apply_zoom_options, build_join_url,
+                          build_record_command, build_remux_command, find_meeting_window,
+                          load_meetings, parse_wmctrl)
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
@@ -200,27 +200,8 @@ def save_zoom_config():
         logging.error("Could not save Zoom configuration: " + str(ex))
 
 
-# Zoom settings enforced before every start
-ZOOM_OPTIONS = {
-    # Zoom is stopped with a signal after each meeting, which it reports as crash on the next start
-    'hideCrashReport': 'true',
-}
-
-
-def apply_zoom_options():
-    try:
-        with open(ZOOM_CONF) as f:
-            text = f.read()
-        for key, value in ZOOM_OPTIONS.items():
-            text = set_ini_option(text, 'General', key, value)
-        with open(ZOOM_CONF, 'w') as f:
-            f.write(text)
-    except OSError as ex:
-        logging.error("Could not update Zoom configuration: " + str(ex))
-
-
 def start_zoom(meet_id, meet_pw):
-    apply_zoom_options()
+    apply_zoom_options(ZOOM_CONF)
     url = build_join_url(meet_id, meet_pw, DISPLAY_NAME)
     if url is None:
         # Link without meeting number, let Zoom handle it

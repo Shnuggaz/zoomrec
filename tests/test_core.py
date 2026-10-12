@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from zoomrec_core import (Meeting, MeetingError, RecordingSettings, Window,  # noqa: E402
                           build_join_url, build_record_command, build_remux_command,
                           find_meeting_window, load_meetings, parse_meeting,
-                          parse_wmctrl, sanitize_description, set_ini_option)
+                          parse_wmctrl, sanitize_description, set_ini_option,
+                          apply_zoom_options)
 
 VALID = {
     'weekday': 'Monday', 'time': '09:55', 'duration': '90', 'id': '123 456 7890',
@@ -220,6 +221,22 @@ class IniOptionTest(unittest.TestCase):
         result = set_ini_option('[General]\nhideCrashReportX=1\n', 'General', 'hideCrashReport', 'true')
         self.assertIn('hideCrashReportX=1', result)
         self.assertIn('hideCrashReport=true', result)
+
+
+class ApplyZoomOptionsTest(unittest.TestCase):
+    def test_sets_hide_crash_report(self):
+        f = tempfile.NamedTemporaryFile('w', suffix='.conf', delete=False)
+        f.write('[General]\nhideCrashReport=false\ndeviceID=AA\n')
+        f.close()
+        self.addCleanup(os.remove, f.name)
+        apply_zoom_options(f.name)
+        text = open(f.name).read()
+        self.assertIn('hideCrashReport=true', text)
+        self.assertIn('deviceID=AA', text)
+
+    def test_missing_file_is_logged(self):
+        with self.assertLogs(level='ERROR'):
+            apply_zoom_options('/nonexistent/zoomus.conf')
 
 
 if __name__ == '__main__':
