@@ -38,3 +38,24 @@ services:
       - ./audio:/home/zoomrec/audio:ro
       # Zoom settings (e.g. skip join preview, remembered name), survive image updates
       - ./zoom-profile:/home/zoomrec/.zoom
+
+  webui:
+    build:
+      context: .
+      dockerfile: webui/Dockerfile
+    image: zoomrec-webui:local
+    container_name: zoomrec-webui
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Vienna}
+      # Required, the web interface does not start without a password
+      WEB_PASSWORD: ${WEB_PASSWORD:?Set WEB_PASSWORD in .env}
+      RECORDINGS_DIR: /data/recordings
+      MEETINGS_CSV: /data/config/meetings.csv
+    ports:
+      # Default: only reachable on the VM itself. WEB_BIND=0.0.0.0 makes it reachable in the LAN.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    volumes:
+      - ./recordings:/data/recordings
+      - ./config:/data/config
+    mem_limit: 256m
