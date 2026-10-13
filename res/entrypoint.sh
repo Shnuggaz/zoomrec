@@ -16,8 +16,10 @@ DISPLAY_NUM="${DISPLAY#:}"
 # Mounted directories must be writable by the zoomrec user (uid 1000)
 for dir in "$HOME/.zoom" "$HOME/recordings" "$HOME/work"; do
     if [[ -d "$dir" && ! -w "$dir" ]]; then
-        echo "ERROR: $dir is not writable for uid $(id -u)." >&2
-        echo "Run on the host: sudo chown -R 1000:1000 <mounted directory>" >&2
+        echo "ERROR: $dir is not writable for uid $(id -u) / gid $(id -g)." >&2
+        echo "  Current owner and mode: $(stat -c '%u:%g %A' "$dir")" >&2
+        echo "  Give uid $(id -u) or gid $(id -g) write access on the host (or on the NAS for a network share)," >&2
+        echo "  or set PGID in .env to a group that already has write access." >&2
         exit 1
     fi
 done
