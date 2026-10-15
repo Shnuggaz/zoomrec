@@ -67,7 +67,7 @@
       $("rec-progress-end").textContent = `spätestens ${clock(s.planned_end)}`;
     } else if (state === "joining") {
       $("status-title").textContent = meeting;
-      $("status-detail").textContent = `Wartet seit ${clock(s.since)} auf das Meeting, evtl. im Warteraum`;
+      $("status-detail").textContent = `Seit ${clock(s.since)}: ${s.join_detail || "wartet auf das Meeting"}`;
     } else if (state === "finishing") {
       $("status-title").textContent = meeting;
       $("status-detail").textContent = "Die Aufnahme wird gespeichert und erscheint gleich in der Bibliothek.";

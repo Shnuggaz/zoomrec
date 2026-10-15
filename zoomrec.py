@@ -204,6 +204,30 @@ def exit_process_by_name(name):
                               "[" + str(process_id) + "]: " + str(ex))
 
 
+def keep_screen_awake():
+    """Reset the X screensaver idle timer so the virtual screen is never blanked."""
+    subprocess.run(['xset', 's', 'reset'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def screen_is_black():
+    """True if (almost) the whole virtual screen is black, e.g. blanked by a screensaver."""
+    try:
+        image = pyautogui.screenshot()
+    except Exception:
+        return False
+    step_x, step_y = max(1, image.width // 24), max(1, image.height // 14)
+    pixels = [image.getpixel((x, y)) for x in range(0, image.width, step_x)
+              for y in range(0, image.height, step_y)]
+    return sum(1 for p in pixels if sum(p[:3]) < 30) >= 0.95 * len(pixels)
+
+
+def wake_screen():
+    """Wake a blanked screen with a tiny mouse movement (synthetic input resets idle timers)."""
+    keep_screen_awake()
+    subprocess.run(['xdotool', 'mousemove_relative', '--', '1', '1'], stderr=subprocess.DEVNULL)
+    subprocess.run(['xdotool', 'mousemove_relative', '--', '-1', '-1'], stderr=subprocess.DEVNULL)
+
+
 def list_windows():
     try:
         output = subprocess.run(['wmctrl', '-lx'], stdout=subprocess.PIPE,
@@ -466,7 +490,8 @@ def join(meet_id, meet_pw, duration, description):
         exit_process_by_name("ffmpeg")
     finally:
         remove_preview()
-        update_status(state='idle', meeting=None, since=None, planned_end=None, file=None)
+        update_status(state='idle', meeting=None, since=None, planned_end=None, file=None,
+                      join_detail=None)
 
 
 def record_meeting(meet_id, meet_pw, duration, description):
@@ -482,6 +507,7 @@ def record_meeting(meet_id, meet_pw, duration, description):
 
     # Exit Zoom if running
     exit_process_by_name("zoom")
+    keep_screen_awake()
     zoom = start_zoom(meet_id, meet_pw)
 
     # Wait for the meeting window (we may sit in the waiting room until the host admits us)
@@ -490,16 +516,25 @@ def record_meeting(meet_id, meet_pw, duration, description):
     last_preview = 0
     seen_titles = []
     last_join_click = 0
+    last_black_check = 0
+    woke_at = 0
     join_error = None
     while meeting is None and datetime.now() < end_date:
         time.sleep(2)
+        keep_screen_awake()
+        if time.time() - last_black_check >= 10:
+            last_black_check = time.time()
+            if screen_is_black():
+                logging.warning("Virtual screen is black, waking it up")
+                wake_screen()
+                woke_at = time.time()
         windows = list_windows()
         meeting = find_meeting_window(windows)
         if meeting is not None:
             break
-        for window in windows:
-            if window.wm_class != 'zoom.zoom':
-                continue
+        zoom_windows = [w for w in windows if w.wm_class == 'zoom.zoom']
+        preview_without_button = False
+        for window in zoom_windows:
             # Log every Zoom window title once, so unknown dialogs can be identified later
             if window.title not in seen_titles:
                 seen_titles.append(window.title)
@@ -510,11 +545,25 @@ def record_meeting(meet_id, meet_pw, duration, description):
                 # Probably the join preview (titled with the meeting topic)
                 if click_join_in_preview(window):
                     last_join_click = time.time()
+                else:
+                    preview_without_button = True
         if join_error:
             break
-        if time.time() - last_preview >= PREVIEW_INTERVAL:
+
+        # Explain in the web interface what the bot is waiting for
+        if time.time() - woke_at < 30:
+            join_detail = "Bildschirm war schwarz und wurde aufgeweckt"
+        elif not zoom_windows:
+            join_detail = "Zoom startet"
+        elif last_join_click:
+            join_detail = "Join geklickt, wartet auf Einlass (Warteraum)"
+        elif preview_without_button:
+            join_detail = "Vorschaufenster offen, Join-Knopf nicht gefunden"
+        else:
+            join_detail = "Wartet auf das Meeting (Warteraum oder Host noch nicht da)"
+        if time.time() - last_preview >= PREVIEW_INTERVAL or join_detail != STATUS.get('join_detail'):
             save_preview()
-            update_status()
+            update_status(join_detail=join_detail)
             last_preview = time.time()
 
     if meeting is None:
@@ -538,7 +587,7 @@ def record_meeting(meet_id, meet_pw, duration, description):
         stop_recording(ffmpeg_debug)
 
     ffmpeg, filename = start_recording(description)
-    update_status(state='recording', recording_since=datetime.now().isoformat(timespec='seconds'),
+    update_status(state='recording', join_detail=None, recording_since=datetime.now().isoformat(timespec='seconds'),
                   file=os.path.basename(filename))
     save_preview()
     send_telegram_message("Joined Meeting '{}' and started recording.".format(description))
@@ -561,6 +610,7 @@ def record_meeting(meet_id, meet_pw, duration, description):
                 break
         else:
             window_gone_since = None
+            keep_screen_awake()
             show_meeting_fullscreen(meeting)
         if time.time() - last_screenshot >= DEBUG_SCREENSHOT_INTERVAL:
             debug_screenshot(description, "meeting")

@@ -88,6 +88,14 @@ echo -e "\nConnect to $VNC_IP:$VNC_PORT"
 # Start xfce4
 "$START_DIR"/xfce.sh &> "$START_DIR"/xfce.log
 
+# Never blank the virtual screen: a blank screen is recorded black and hides Zoom's
+# buttons from the bot. Power manager and screensavers are disabled in autostart,
+# stop them here as well in case the session started them anyway.
+sleep 3
+pkill -f xfce4-power-manager 2>/dev/null || true
+pkill -f xfce4-screensaver 2>/dev/null || true
+xset s off; xset s noblank; xset -dpms 2>/dev/null || true
+
 # Cleanup to ensure pulseaudio is stateless
 rm -rf /var/run/pulse /var/lib/pulse "$HOME"/.config/pulse
 
